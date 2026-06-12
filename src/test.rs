@@ -128,3 +128,14 @@ fn test_claim_transfer_wrong_recipient_fails() {
     let res = s.client.try_claim_transfer(&id, &stranger);
     assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
 }
+
+#[test]
+fn test_claim_after_expiry_fails() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    let res = s.client.try_claim_transfer(&id, &s.recipient);
+    assert_eq!(res, Err(Ok(crate::error::Error::Expired)));
+}
