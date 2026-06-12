@@ -227,6 +227,27 @@ fn test_create_transfer_rejects_oversized_amount() {
 }
 
 #[test]
+fn test_get_transfers_paged_respects_limit_and_start() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    for _ in 0..3 {
+        s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    }
+
+    let first = s.client.get_transfers_paged(&1, &2);
+    assert_eq!(first.len(), 2);
+    assert_eq!(first.get(0).unwrap().id, 1);
+    assert_eq!(first.get(1).unwrap().id, 2);
+
+    let second = s.client.get_transfers_paged(&3, &2);
+    assert_eq!(second.len(), 1);
+    assert_eq!(second.get(0).unwrap().id, 3);
+
+    let empty = s.client.get_transfers_paged(&1, &0);
+    assert_eq!(empty.len(), 0);
+}
+
+#[test]
 fn test_is_expired_reflects_ledger_time() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
