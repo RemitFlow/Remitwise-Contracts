@@ -154,3 +154,13 @@ fn test_cancel_after_expiry_refunds_sender() {
     assert_eq!(token_client.balance(&s.client.address), 0);
     assert_eq!(s.client.get_transfer(&id).status, Status::Cancelled);
 }
+
+#[test]
+fn test_cancel_before_expiry_fails() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    let res = s.client.try_cancel_transfer(&id, &s.from);
+    assert_eq!(res, Err(Ok(crate::error::Error::NotExpired)));
+}
