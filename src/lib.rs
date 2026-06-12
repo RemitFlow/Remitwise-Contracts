@@ -98,4 +98,36 @@ impl RemitFlowContract {
         events::created(&env, id, &from, &recipient, amount);
         Ok(id)
     }
+
+    /// Claim a pending transfer, releasing its funds to the recipient.
+    ///
+    /// Only the recorded recipient may claim, the transfer must still be
+    /// pending, and the current ledger time must not exceed the expiry.
+    pub fn claim_transfer(env: Env, id: u64, recipient: Address) -> Result<(), Error> {
+        let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
+        if transfer.recipient != recipient {
+            return Err(Error::Unauthorized);
+        }
+        if transfer.status != Status::Pending {
+            return Err(Error::NotPending);
+        }
+        if env.ledger().timestamp() > transfer.expiry {
+            return Err(Error::Expired);
+        }
+        recipient.require_auth();
+
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &transfer.amount,
+        );
+
+        transfer.status = Status::Claimed;
+        let amount = transfer.amount;
+        storage::set_transfer(&env, &transfer);
+        storage::extend_instance(&env);
+        events::claimed(&env, id, &recipient, amount);
+        Ok(())
+    }
 }
