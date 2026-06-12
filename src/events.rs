@@ -7,10 +7,10 @@ pub fn init(env: &Env, admin: &Address, token: &Address) {
 }
 
 /// Publish an event recording the creation of a new transfer.
-pub fn created(env: &Env, id: u64, from: &Address, recipient: &Address, amount: i128) {
+pub fn created(env: &Env, id: u64, from: &Address, recipient: &Address, amount: i128, expiry: u64) {
     let topics = (Symbol::new(env, "created"), id);
     env.events()
-        .publish(topics, (from.clone(), recipient.clone(), amount));
+        .publish(topics, (from.clone(), recipient.clone(), amount, expiry));
 }
 
 /// Publish an event recording a successful claim by the recipient.

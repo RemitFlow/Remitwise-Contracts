@@ -117,7 +117,7 @@ impl RemitFlowContract {
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
         storage::extend_instance(&env);
-        events::created(&env, id, &from, &recipient, amount);
+        events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
     }
 
