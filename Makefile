@@ -3,6 +3,9 @@ default: build
 build:
 	cargo build --target wasm32-unknown-unknown --release
 
+optimize: build
+	stellar contract optimize --wasm target/wasm32-unknown-unknown/release/remitflow_contract.wasm
+
 test:
 	cargo test
 
@@ -15,4 +18,4 @@ lint:
 clean:
 	cargo clean
 
-.PHONY: default build test fmt lint clean
+.PHONY: default build optimize test fmt lint clean
