@@ -162,4 +162,9 @@ impl RemitFlowContract {
         events::cancelled(&env, id, &from, amount);
         Ok(())
     }
+
+    /// Fetch the full transfer record for the given id.
+    pub fn get_transfer(env: Env, id: u64) -> Result<Transfer, Error> {
+        storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)
+    }
 }
