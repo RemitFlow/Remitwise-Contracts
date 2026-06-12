@@ -24,3 +24,15 @@ pub fn cancelled(env: &Env, id: u64, from: &Address, amount: i128) {
     let topics = (Symbol::new(env, "cancelled"), id);
     env.events().publish(topics, (from.clone(), amount));
 }
+
+/// Publish an event recording that the admin paused the contract.
+pub fn paused(env: &Env, admin: &Address) {
+    let topics = (Symbol::new(env, "paused"),);
+    env.events().publish(topics, admin.clone());
+}
+
+/// Publish an event recording that the admin unpaused the contract.
+pub fn unpaused(env: &Env, admin: &Address) {
+    let topics = (Symbol::new(env, "unpaused"),);
+    env.events().publish(topics, admin.clone());
+}
