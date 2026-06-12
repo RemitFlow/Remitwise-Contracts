@@ -13,7 +13,7 @@ mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
 use crate::types::{Status, Transfer};
@@ -233,6 +233,24 @@ impl RemitFlowContract {
         storage::get_transfer(&env, id)
             .map(|transfer| transfer.status)
             .ok_or(Error::TransferNotFound)
+    }
+
+    /// Return a page of transfer records starting at `start_id`.
+    ///
+    /// Collects up to `limit` existing transfers with ids in
+    /// `start_id..=counter`, skipping any gaps. A `limit` of zero yields an
+    /// empty page.
+    pub fn get_transfers_paged(env: Env, start_id: u64, limit: u32) -> Vec<Transfer> {
+        let last = storage::get_counter(&env);
+        let mut page = Vec::new(&env);
+        let mut id = start_id.max(1);
+        while id <= last && (page.len() as u32) < limit {
+            if let Some(transfer) = storage::get_transfer(&env, id) {
+                page.push_back(transfer);
+            }
+            id += 1;
+        }
+        page
     }
 
     /// Return true if the transfer with the given id has passed its expiry.
