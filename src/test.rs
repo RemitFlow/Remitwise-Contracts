@@ -164,3 +164,15 @@ fn test_cancel_before_expiry_fails() {
     let res = s.client.try_cancel_transfer(&id, &s.from);
     assert_eq!(res, Err(Ok(crate::error::Error::NotExpired)));
 }
+
+#[test]
+fn test_cancel_by_non_sender_fails() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    let res = s.client.try_cancel_transfer(&id, &stranger);
+    assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
+}
