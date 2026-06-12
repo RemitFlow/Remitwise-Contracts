@@ -176,3 +176,14 @@ fn test_cancel_by_non_sender_fails() {
     let res = s.client.try_cancel_transfer(&id, &stranger);
     assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
 }
+
+#[test]
+fn test_claim_twice_fails() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    s.client.claim_transfer(&id, &s.recipient);
+    let res = s.client.try_claim_transfer(&id, &s.recipient);
+    assert_eq!(res, Err(Ok(crate::error::Error::NotPending)));
+}
