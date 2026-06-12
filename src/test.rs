@@ -227,6 +227,18 @@ fn test_create_transfer_rejects_oversized_amount() {
 }
 
 #[test]
+fn test_is_expired_reflects_ledger_time() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+
+    assert!(!s.client.is_expired(&id));
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    assert!(s.client.is_expired(&id));
+}
+
+#[test]
 fn test_pause_blocks_create_transfer() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
