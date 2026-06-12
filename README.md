@@ -40,3 +40,22 @@ cargo test
 
 The compiled artifact is written to
 `target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
+
+## Deploy
+
+Deploy the WASM and initialize it using the Stellar CLI:
+
+```sh
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/remitflow_contract.wasm \
+  --source deployer \
+  --network testnet
+
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- initialize \
+  --admin <ADMIN_ADDRESS> \
+  --token <TOKEN_ADDRESS>
+```
