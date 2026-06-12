@@ -12,3 +12,9 @@ pub fn created(env: &Env, id: u64, from: &Address, recipient: &Address, amount: 
     env.events()
         .publish(topics, (from.clone(), recipient.clone(), amount));
 }
+
+/// Publish an event recording a successful claim by the recipient.
+pub fn claimed(env: &Env, id: u64, recipient: &Address, amount: i128) {
+    let topics = (Symbol::new(env, "claimed"), id);
+    env.events().publish(topics, (recipient.clone(), amount));
+}
