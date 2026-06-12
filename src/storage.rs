@@ -21,6 +21,8 @@ pub enum DataKey {
     Token,
     /// Monotonic counter for issued transfer ids (instance storage).
     Counter,
+    /// Paused flag gating new transfers (instance storage).
+    Paused,
     /// A single transfer record keyed by its id (persistent storage).
     Transfer(u64),
 }
@@ -68,6 +70,19 @@ pub fn get_counter(env: &Env) -> u64 {
 /// Persist a new value for the transfer counter.
 pub fn set_counter(env: &Env, value: u64) {
     env.storage().instance().set(&DataKey::Counter, &value);
+}
+
+/// Read the paused flag, defaulting to false when unset.
+pub fn get_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Persist the paused flag value.
+pub fn set_paused(env: &Env, value: bool) {
+    env.storage().instance().set(&DataKey::Paused, &value);
 }
 
 /// Store a transfer record in persistent storage keyed by its id.
