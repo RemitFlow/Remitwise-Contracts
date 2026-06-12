@@ -13,10 +13,17 @@ mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env};
 
 use crate::error::Error;
 use crate::types::{Status, Transfer};
+
+contractmeta!(key = "name", val = "RemitFlow");
+contractmeta!(key = "version", val = "0.1.0");
+contractmeta!(
+    key = "description",
+    val = "Cross-border remittance escrow for Soroban/Stellar"
+);
 
 /// The RemitFlow remittance escrow contract.
 #[contract]
