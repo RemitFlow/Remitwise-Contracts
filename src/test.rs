@@ -103,3 +103,17 @@ fn test_create_transfer_rejects_past_expiry() {
     let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &1_000);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidExpiry)));
 }
+
+#[test]
+fn test_claim_transfer_pays_recipient() {
+    let s = setup();
+    let token_client = TokenClient::new(&s.env, &s.token);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    s.client.claim_transfer(&id, &s.recipient);
+
+    assert_eq!(token_client.balance(&s.recipient), 400);
+    assert_eq!(token_client.balance(&s.client.address), 0);
+    assert_eq!(s.client.get_transfer(&id).status, Status::Claimed);
+}
