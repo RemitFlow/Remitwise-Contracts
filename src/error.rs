@@ -29,4 +29,6 @@ pub enum Error {
     SameParty = 11,
     /// The supplied amount exceeds the maximum allowed per transfer.
     AmountTooLarge = 12,
+    /// The contract is paused and cannot accept new transfers.
+    ContractPaused = 13,
 }
