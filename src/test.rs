@@ -68,3 +68,22 @@ fn test_initialize_twice_fails() {
     let res = s.client.try_initialize(&s.admin, &s.token);
     assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_create_transfer_moves_funds_to_escrow() {
+    let s = setup();
+    let token_client = TokenClient::new(&s.env, &s.token);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    assert_eq!(id, 1);
+    assert_eq!(s.client.counter(), 1);
+    assert_eq!(token_client.balance(&s.from), 600);
+    assert_eq!(token_client.balance(&s.client.address), 400);
+
+    let transfer = s.client.get_transfer(&id);
+    assert_eq!(transfer.amount, 400);
+    assert_eq!(transfer.status, Status::Pending);
+    assert_eq!(transfer.recipient, s.recipient);
+}
