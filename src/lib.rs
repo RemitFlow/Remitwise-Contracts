@@ -181,6 +181,11 @@ impl RemitFlowContract {
         storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)
     }
 
+    /// Return true if a transfer with the given id has been recorded.
+    pub fn transfer_exists(env: Env, id: u64) -> bool {
+        storage::has_transfer(&env, id)
+    }
+
     /// Count how many created transfers currently hold the given status.
     ///
     /// Scans transfer ids `1..=counter` and tallies records whose
