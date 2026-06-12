@@ -180,4 +180,23 @@ impl RemitFlowContract {
     pub fn get_transfer(env: Env, id: u64) -> Result<Transfer, Error> {
         storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)
     }
+
+    /// Count how many created transfers currently hold the given status.
+    ///
+    /// Scans transfer ids `1..=counter` and tallies records whose
+    /// [`Status`] matches `status`.
+    pub fn count_by_status(env: Env, status: Status) -> u64 {
+        let last = storage::get_counter(&env);
+        let mut count = 0u64;
+        let mut id = 1u64;
+        while id <= last {
+            if let Some(transfer) = storage::get_transfer(&env, id) {
+                if transfer.status == status {
+                    count += 1;
+                }
+            }
+            id += 1;
+        }
+        count
+    }
 }
