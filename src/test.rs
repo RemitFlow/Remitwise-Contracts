@@ -117,3 +117,14 @@ fn test_claim_transfer_pays_recipient() {
     assert_eq!(token_client.balance(&s.client.address), 0);
     assert_eq!(s.client.get_transfer(&id).status, Status::Claimed);
 }
+
+#[test]
+fn test_claim_transfer_wrong_recipient_fails() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    let res = s.client.try_claim_transfer(&id, &stranger);
+    assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
+}
