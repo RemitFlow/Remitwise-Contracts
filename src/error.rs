@@ -25,4 +25,6 @@ pub enum Error {
     Expired = 9,
     /// The transfer has not yet reached its expiry timestamp.
     NotExpired = 10,
+    /// The sender and recipient must be different addresses.
+    SameParty = 11,
 }
