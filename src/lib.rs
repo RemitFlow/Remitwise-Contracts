@@ -31,6 +31,12 @@ contractmeta!(
 /// outsized values while staying well within the token's `i128` range.
 pub const MAX_AMOUNT: i128 = 1_000_000_000_000_000_000;
 
+/// Maximum allowed distance, in seconds, between now and a transfer's expiry.
+///
+/// Caps how far in the future an escrow can be scheduled (roughly one year)
+/// so funds are not locked away indefinitely by an out-of-range expiry.
+pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -116,8 +122,12 @@ impl RemitFlowContract {
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
-        if expiry <= env.ledger().timestamp() {
+        let now = env.ledger().timestamp();
+        if expiry <= now {
             return Err(Error::InvalidExpiry);
+        }
+        if expiry - now > MAX_EXPIRY_WINDOW {
+            return Err(Error::ExpiryTooFar);
         }
         if from == recipient {
             return Err(Error::SameParty);
