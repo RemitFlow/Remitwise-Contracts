@@ -216,6 +216,17 @@ fn test_create_transfer_rejects_self_transfer() {
 }
 
 #[test]
+fn test_create_transfer_rejects_oversized_amount() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let amount = crate::MAX_AMOUNT + 1;
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &amount, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::AmountTooLarge)));
+}
+
+#[test]
 fn test_count_by_status_tracks_lifecycle() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
