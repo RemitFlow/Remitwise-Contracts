@@ -53,3 +53,11 @@ fn setup<'a>() -> Setup<'a> {
         recipient,
     }
 }
+
+#[test]
+fn test_initialize_sets_admin_and_token() {
+    let s = setup();
+    assert_eq!(s.client.get_admin(), s.admin);
+    assert_eq!(s.client.get_token(), s.token);
+    assert_eq!(s.client.counter(), 0);
+}
