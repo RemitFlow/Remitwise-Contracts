@@ -25,6 +25,12 @@ contractmeta!(
     val = "Cross-border remittance escrow for Soroban/Stellar"
 );
 
+/// Largest token amount accepted for a single escrowed transfer.
+///
+/// Bounds individual transfers to guard against accidental or malicious
+/// outsized values while staying well within the token's `i128` range.
+pub const MAX_AMOUNT: i128 = 1_000_000_000_000_000_000;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -78,6 +84,9 @@ impl RemitFlowContract {
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
         if amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+        if amount > MAX_AMOUNT {
+            return Err(Error::AmountTooLarge);
         }
         if expiry <= env.ledger().timestamp() {
             return Err(Error::InvalidExpiry);

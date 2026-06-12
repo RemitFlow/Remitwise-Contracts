@@ -27,4 +27,6 @@ pub enum Error {
     NotExpired = 10,
     /// The sender and recipient must be different addresses.
     SameParty = 11,
+    /// The supplied amount exceeds the maximum allowed per transfer.
+    AmountTooLarge = 12,
 }
