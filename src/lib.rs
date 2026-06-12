@@ -262,6 +262,44 @@ impl RemitFlowContract {
         Ok(env.ledger().timestamp() > transfer.expiry)
     }
 
+    /// Count how many created transfers were funded by `from`.
+    ///
+    /// Scans transfer ids `1..=counter` and tallies records whose sender
+    /// matches `from`.
+    pub fn count_for_sender(env: Env, from: Address) -> u64 {
+        let last = storage::get_counter(&env);
+        let mut count = 0u64;
+        let mut id = 1u64;
+        while id <= last {
+            if let Some(transfer) = storage::get_transfer(&env, id) {
+                if transfer.from == from {
+                    count += 1;
+                }
+            }
+            id += 1;
+        }
+        count
+    }
+
+    /// Count how many created transfers target `recipient`.
+    ///
+    /// Scans transfer ids `1..=counter` and tallies records whose recipient
+    /// matches `recipient`.
+    pub fn count_for_recipient(env: Env, recipient: Address) -> u64 {
+        let last = storage::get_counter(&env);
+        let mut count = 0u64;
+        let mut id = 1u64;
+        while id <= last {
+            if let Some(transfer) = storage::get_transfer(&env, id) {
+                if transfer.recipient == recipient {
+                    count += 1;
+                }
+            }
+            id += 1;
+        }
+        count
+    }
+
     /// Count how many created transfers currently hold the given status.
     ///
     /// Scans transfer ids `1..=counter` and tallies records whose
