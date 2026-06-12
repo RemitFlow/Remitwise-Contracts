@@ -61,3 +61,10 @@ fn test_initialize_sets_admin_and_token() {
     assert_eq!(s.client.get_token(), s.token);
     assert_eq!(s.client.counter(), 0);
 }
+
+#[test]
+fn test_initialize_twice_fails() {
+    let s = setup();
+    let res = s.client.try_initialize(&s.admin, &s.token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+}
