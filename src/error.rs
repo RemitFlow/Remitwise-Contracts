@@ -31,4 +31,6 @@ pub enum Error {
     AmountTooLarge = 12,
     /// The contract is paused and cannot accept new transfers.
     ContractPaused = 13,
+    /// The supplied expiry is further out than the maximum allowed window.
+    ExpiryTooFar = 14,
 }
