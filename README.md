@@ -59,3 +59,18 @@ stellar contract invoke \
   --admin <ADMIN_ADDRESS> \
   --token <TOKEN_ADDRESS>
 ```
+
+## Transfer lifecycle
+
+Each transfer moves through the following states:
+
+- `Pending` — created and funded, awaiting action.
+- `Claimed` — recipient withdrew the funds before expiry (terminal).
+- `Cancelled` — sender reclaimed the funds after expiry (terminal).
+
+Only `Pending` transfers can be claimed or cancelled. Claims must happen on or
+before the expiry timestamp; cancellations are only allowed strictly after it.
+
+## License
+
+Licensed under the MIT License.
