@@ -69,3 +69,24 @@ pub fn get_counter(env: &Env) -> u64 {
 pub fn set_counter(env: &Env, value: u64) {
     env.storage().instance().set(&DataKey::Counter, &value);
 }
+
+/// Store a transfer record in persistent storage keyed by its id.
+pub fn set_transfer(env: &Env, transfer: &Transfer) {
+    let key = DataKey::Transfer(transfer.id);
+    env.storage().persistent().set(&key, transfer);
+    env.storage().persistent().extend_ttl(
+        &key,
+        PERSISTENT_BUMP_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
+}
+
+/// Read a transfer record from persistent storage by id, if present.
+pub fn get_transfer(env: &Env, id: u64) -> Option<Transfer> {
+    env.storage().persistent().get(&DataKey::Transfer(id))
+}
+
+/// Returns true if a transfer with the given id exists.
+pub fn has_transfer(env: &Env, id: u64) -> bool {
+    env.storage().persistent().has(&DataKey::Transfer(id))
+}
