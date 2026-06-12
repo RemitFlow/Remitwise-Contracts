@@ -75,6 +75,9 @@ impl RemitFlowContract {
         if expiry <= env.ledger().timestamp() {
             return Err(Error::InvalidExpiry);
         }
+        if from == recipient {
+            return Err(Error::SameParty);
+        }
         from.require_auth();
 
         let id = storage::get_counter(&env)
