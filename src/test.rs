@@ -139,3 +139,18 @@ fn test_claim_after_expiry_fails() {
     let res = s.client.try_claim_transfer(&id, &s.recipient);
     assert_eq!(res, Err(Ok(crate::error::Error::Expired)));
 }
+
+#[test]
+fn test_cancel_after_expiry_refunds_sender() {
+    let s = setup();
+    let token_client = TokenClient::new(&s.env, &s.token);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    s.client.cancel_transfer(&id, &s.from);
+
+    assert_eq!(token_client.balance(&s.from), 1_000);
+    assert_eq!(token_client.balance(&s.client.address), 0);
+    assert_eq!(s.client.get_transfer(&id).status, Status::Cancelled);
+}
