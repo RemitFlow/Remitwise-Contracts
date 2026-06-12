@@ -227,6 +227,24 @@ fn test_create_transfer_rejects_oversized_amount() {
 }
 
 #[test]
+fn test_pause_blocks_create_transfer() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    assert!(!s.client.is_paused());
+    s.client.pause();
+    assert!(s.client.is_paused());
+
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
+
+    s.client.unpause();
+    assert!(!s.client.is_paused());
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(id, 1);
+}
+
+#[test]
 fn test_count_by_status_tracks_lifecycle() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
