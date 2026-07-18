@@ -12,6 +12,8 @@ mod types;
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
