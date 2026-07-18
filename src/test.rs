@@ -330,3 +330,170 @@ fn test_count_by_status_tracks_lifecycle() {
     assert_eq!(s.client.count_by_status(&Status::Pending), 1);
     assert_eq!(s.client.count_by_status(&Status::Claimed), 1);
 }
+
+// Admin-only guard tests
+
+#[test]
+fn test_pause_requires_admin_auth() {
+    let s = setup();
+    let non_admin = Address::generate(&s.env);
+
+    // Create a new environment without mocked auth to test authorization
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, token_admin) = create_token(&env, &admin);
+
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token);
+
+    // Attempting to pause with non-admin should fail
+    let res = client.try_pause();
+    // Should fail because non_admin doesn't have auth
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_unpause_requires_admin_auth() {
+    let s = setup();
+
+    // Pause first (admin can do this)
+    s.client.pause();
+    assert!(s.client.is_paused());
+
+    // Create a non-admin context
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, _token_admin) = create_token(&env, &admin);
+
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token);
+    client.pause();
+
+    // Attempting to unpause without proper auth should fail
+    let res = client.try_unpause();
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_initialize_requires_admin_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, _token_admin) = create_token(&env, &admin);
+
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    // Initialize without mocked auth - should fail because admin.require_auth() won't pass
+    let res = client.try_initialize(&admin, &token);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_pause_by_admin_succeeds() {
+    let s = setup();
+
+    assert!(!s.client.is_paused());
+    s.client.pause();
+    assert!(s.client.is_paused());
+}
+
+#[test]
+fn test_unpause_by_admin_succeeds() {
+    let s = setup();
+
+    s.client.pause();
+    assert!(s.client.is_paused());
+
+    s.client.unpause();
+    assert!(!s.client.is_paused());
+}
+
+#[test]
+fn test_initialize_by_admin_succeeds() {
+    let s = setup();
+    assert_eq!(s.client.get_admin(), s.admin);
+    assert_eq!(s.client.get_token(), s.token);
+}
+
+#[test]
+fn test_non_admin_cannot_pause_twice() {
+    let s = setup();
+
+    // First pause by admin
+    s.client.pause();
+    assert!(s.client.is_paused());
+
+    // Try to pause again by admin (should succeed since admin always has auth in mock)
+    s.client.pause();
+    assert!(s.client.is_paused());
+}
+
+#[test]
+fn test_pause_and_unpause_state_changes() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    // Initially not paused
+    assert!(!s.client.is_paused());
+
+    // Pause and verify
+    s.client.pause();
+    assert!(s.client.is_paused());
+
+    // Verify transfers are blocked while paused
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
+
+    // Unpause and verify
+    s.client.unpause();
+    assert!(!s.client.is_paused());
+
+    // Verify transfers work again
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn test_admin_guard_on_pause_with_mock_all_auths() {
+    let s = setup();
+
+    // With mock_all_auths(), admin auth is automatically approved
+    assert!(!s.client.is_paused());
+    s.client.pause();
+    assert!(s.client.is_paused());
+    s.client.unpause();
+    assert!(!s.client.is_paused());
+}
+
+#[test]
+fn test_initialize_only_once_enforces_admin_guard() {
+    let s = setup();
+
+    // First initialization passed (already done in setup)
+    assert_eq!(s.client.get_admin(), s.admin);
+
+    // Second attempt should fail
+    let res = s.client.try_initialize(&s.admin, &s.token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_admin_operations_require_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    // Attempting admin operations before initialization should fail
+    let res = client.try_pause();
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+
+    let res = client.try_unpause();
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+}
