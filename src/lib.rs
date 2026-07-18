@@ -254,7 +254,7 @@ impl RemitFlowContract {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
         let mut id = start_id.max(1);
-        while id <= last && (page.len() as u32) < limit {
+        while id <= last && page.len() < limit {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 page.push_back(transfer);
             }

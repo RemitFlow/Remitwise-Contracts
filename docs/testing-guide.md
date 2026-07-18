@@ -1,9 +1,16 @@
 # Testing Guide
 
-This note documents the **testing-guide** of the remitflow-contract contract.
+Run the automated test suite with the locked dependency versions:
 
-remitflow-contract is a Soroban smart contract on the Stellar network. This page is part of the
-project's reference documentation and describes the testing-guide in detail, covering the relevant
-entrypoints, storage layout, and invariants where applicable.
+```sh
+cargo test --locked
+```
 
-See the README and the sources under src/ for the authoritative implementation.
+CI also runs Clippy against all targets:
+
+```sh
+cargo clippy --all-targets --locked -- -D warnings
+```
+
+The `-D warnings` flag promotes every Clippy warning to an error, so a pull
+request cannot pass CI while lint warnings remain.
