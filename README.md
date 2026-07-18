@@ -49,6 +49,17 @@ make test
 cargo test
 ```
 
+Generate an HTML coverage report:
+
+```sh
+cargo install cargo-llvm-cov --locked
+make coverage
+```
+
+Open `target/llvm-cov/html/index.html` in a browser to inspect the report. See
+the [testing guide](docs/testing-guide.md#coverage) for LCOV output and CI
+details.
+
 The compiled artifact is written to
 `target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
 

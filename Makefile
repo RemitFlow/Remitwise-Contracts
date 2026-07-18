@@ -9,6 +9,12 @@ optimize: build
 test:
 	cargo test
 
+coverage:
+	cargo llvm-cov --workspace --all-features --html --output-dir target/llvm-cov/html
+
+coverage-lcov:
+	cargo llvm-cov --workspace --all-features --lcov --output-path target/llvm-cov/lcov.info
+
 fmt:
 	cargo fmt --all
 
@@ -24,4 +30,4 @@ doc:
 clean:
 	cargo clean
 
-.PHONY: default build optimize test fmt fmt-check lint doc clean
+.PHONY: default build optimize test coverage coverage-lcov fmt fmt-check lint doc clean
