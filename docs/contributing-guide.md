@@ -1,9 +1,11 @@
 # Contributing Guide
 
-This note documents the **contributing-guide** of the remitflow-contract contract.
+Before opening a pull request, run the same checks enforced by CI:
 
-remitflow-contract is a Soroban smart contract on the Stellar network. This page is part of the
-project's reference documentation and describes the contributing-guide in detail, covering the relevant
-entrypoints, storage layout, and invariants where applicable.
+```sh
+cargo test --locked
+cargo clippy --all-targets --locked -- -D warnings
+```
 
-See the README and the sources under src/ for the authoritative implementation.
+Clippy warnings are treated as errors. New or changed Rust code must therefore
+compile without warnings across every target, including tests.

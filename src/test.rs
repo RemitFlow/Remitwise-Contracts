@@ -41,7 +41,7 @@ fn setup<'a>() -> Setup<'a> {
     let (token, _token_client, token_admin) = create_token(&env, &admin);
     token_admin.mint(&from, &1_000);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
     client.add_caller(&from);
