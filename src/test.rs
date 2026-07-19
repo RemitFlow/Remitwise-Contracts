@@ -1,22 +1,14 @@
 #![cfg(test)]
 
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::Address;
+use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::{Address, Env};
 
 use crate::test_utils::{
     TestFixture, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
 use crate::types::Status;
-
-/// Test harness bundling the contract client, token, and key addresses.
-struct Setup<'a> {
-    env: Env,
-    client: RemitFlowContractClient<'a>,
-    token: Address,
-    admin: Address,
-    from: Address,
-    recipient: Address,
-}
+use crate::{RemitFlowContract, RemitFlowContractClient};
 
 /// Deploy a Stellar Asset Contract and return its address and clients.
 fn create_token<'a>(env: &Env, admin: &Address) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
@@ -29,31 +21,6 @@ fn create_token<'a>(env: &Env, admin: &Address) -> (Address, TokenClient<'a>, St
     )
 }
 
-/// Build a fully initialized contract with a funded sender.
-fn setup<'a>() -> Setup<'a> {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let from = Address::generate(&env);
-    let recipient = Address::generate(&env);
-
-    let (token, _token_client, token_admin) = create_token(&env, &admin);
-    token_admin.mint(&from, &1_000);
-
-    let contract_id = env.register_contract(None, RemitFlowContract);
-    let client = RemitFlowContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &token);
-    client.add_caller(&from);
-
-    Setup {
-        env,
-        client,
-        token,
-        admin,
-        from,
-        recipient,
-    }
 fn setup<'a>() -> TestFixture<'a> {
     TestFixture::new()
 }
@@ -334,6 +301,30 @@ fn test_get_transfers_paged_respects_limit_and_start() {
 }
 
 #[test]
+fn test_get_transfers_paged_caps_oversized_limit() {
+    let s = setup();
+    let expiry = s.future_expiry();
+    for _ in 0..=crate::MAX_PAGE_SIZE {
+        s.client.create_transfer(&s.from, &s.recipient, &1, &expiry);
+    }
+
+    let page = s.client.get_transfers_paged(&1, &u32::MAX);
+
+    assert_eq!(page.len(), crate::MAX_PAGE_SIZE);
+    assert_eq!(page.get(0).unwrap().id, 1);
+    assert_eq!(
+        page.get(crate::MAX_PAGE_SIZE - 1).unwrap().id,
+        u64::from(crate::MAX_PAGE_SIZE)
+    );
+}
+
+#[test]
+fn test_get_transfers_paged_empty_contract_returns_empty_page() {
+    let s = setup();
+    assert_eq!(s.client.get_transfers_paged(&1, &10).len(), 0);
+}
+
+#[test]
 fn test_is_expired_reflects_ledger_time() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
@@ -576,6 +567,8 @@ fn test_admin_operations_require_initialization() {
 
     let res = client.try_unpause();
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+}
+
 // --- Arithmetic boundary tests ---
 
 #[test]

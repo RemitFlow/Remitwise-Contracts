@@ -52,6 +52,9 @@ pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 /// Prevents the contract from accumulating an unbounded escrow balance.
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
+/// Maximum number of records returned by a paginated transfer query.
+pub const MAX_PAGE_SIZE: u32 = 100;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -270,18 +273,23 @@ impl RemitFlowContract {
 
     /// Return a page of transfer records starting at `start_id`.
     ///
-    /// Collects up to `limit` existing transfers with ids in
-    /// `start_id..=counter`, skipping any gaps. A `limit` of zero yields an
-    /// empty page.
+    /// Collects up to `min(limit, MAX_PAGE_SIZE)` existing transfers with ids
+    /// in `start_id..=counter`, skipping any gaps. `start_id` is inclusive and
+    /// values below one are treated as one. A `limit` of zero, an empty
+    /// contract, or a start id beyond the counter yields an empty page.
     pub fn get_transfers_paged(env: Env, start_id: u64, limit: u32) -> Vec<Transfer> {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
         let mut id = start_id.max(1);
-        while id <= last && page.len() < limit {
+        let page_size = limit.min(MAX_PAGE_SIZE);
+        while id <= last && page.len() < page_size {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 page.push_back(transfer);
             }
-            id += 1;
+            match id.checked_add(1) {
+                Some(next_id) => id = next_id,
+                None => break,
+            }
         }
         page
     }
