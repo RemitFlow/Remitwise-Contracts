@@ -227,6 +227,18 @@ fn test_create_transfer_rejects_oversized_amount() {
 }
 
 #[test]
+fn test_create_transfer_rejects_when_global_escrow_cap_is_reached() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    let first = s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_TOTAL_ESCROWED, &expiry);
+    assert_eq!(first, 1);
+
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &1, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::EscrowCapReached)));
+}
+
+#[test]
 fn test_create_transfer_rejects_far_future_expiry() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + crate::MAX_EXPIRY_WINDOW + 1;

@@ -71,6 +71,10 @@ stellar contract invoke \
   --token <TOKEN_ADDRESS>
 ```
 
+## Global escrow cap
+
+The contract now enforces a global cap on the total escrowed amount so the system does not accumulate an unbounded balance. Creating a transfer that would exceed this cap returns an explicit error.
+
 ## Transfer lifecycle
 
 Each transfer moves through the following states:

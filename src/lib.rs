@@ -37,6 +37,11 @@ pub const MAX_AMOUNT: i128 = 1_000_000_000_000_000_000;
 /// so funds are not locked away indefinitely by an out-of-range expiry.
 pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 
+/// Global cap on the total escrowed amount.
+///
+/// Prevents the contract from accumulating an unbounded escrow balance.
+pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -120,6 +125,10 @@ impl RemitFlowContract {
             return Err(Error::InvalidAmount);
         }
         if amount > MAX_AMOUNT {
+            return Err(Error::AmountTooLarge);
+        }
+        let total_escrowed = Self::total_escrowed(env.clone());
+        if total_escrowed + amount > MAX_TOTAL_ESCROWED {
             return Err(Error::AmountTooLarge);
         }
         let now = env.ledger().timestamp();
