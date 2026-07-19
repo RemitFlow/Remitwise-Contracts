@@ -36,3 +36,16 @@ pub fn unpaused(env: &Env, admin: &Address) {
     let topics = (Symbol::new(env, "unpaused"),);
     env.events().publish(topics, admin.clone());
 }
+
+/// Publish an event recording that a caller was added to the allowlist.
+pub fn caller_added(env: &Env, caller: &Address) {
+    let topics = (Symbol::new(env, "caller_added"),);
+    env.events().publish(topics, caller.clone());
+}
+
+/// Publish an event recording that a caller was removed from the allowlist.
+pub fn caller_removed(env: &Env, caller: &Address) {
+    let topics = (Symbol::new(env, "caller_removed"),);
+    env.events().publish(topics, caller.clone());
+}
+

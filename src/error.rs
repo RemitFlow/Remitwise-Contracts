@@ -33,4 +33,6 @@ pub enum Error {
     ContractPaused = 13,
     /// The supplied expiry is further out than the maximum allowed window.
     ExpiryTooFar = 14,
+    /// The caller is not on the privileged callers allowlist.
+    CallerNotAllowed = 15,
 }

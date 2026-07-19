@@ -12,11 +12,14 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | Function | Description |
 | --- | --- |
 | `initialize(admin, token)` | Configure the admin and token; callable once. |
-| `create_transfer(from, recipient, amount, expiry) -> u64` | Lock funds in escrow and return the transfer id. |
+| `create_transfer(from, recipient, amount, expiry) -> u64` | Lock funds in escrow and return the transfer id. Caller `from` must be allowlisted. |
 | `claim_transfer(id, recipient)` | Recipient claims a pending, unexpired transfer. |
 | `cancel_transfer(id, from)` | Sender reclaims a pending transfer after expiry. |
 | `pause()` | Admin pauses creation of new transfers. |
 | `unpause()` | Admin re-enables creation of new transfers. |
+| `add_caller(caller)` | Add a caller to the allowlist of privileged callers (admin-only). |
+| `remove_caller(caller)` | Remove a caller from the allowlist of privileged callers (admin-only). |
+| `is_caller_allowed(caller) -> bool` | Check whether a caller is on the privileged callers allowlist. |
 | `get_transfer(id) -> Transfer` | Read a stored transfer record. |
 | `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read a batch of transfers. |
 | `get_status(id) -> Status` | Read just a transfer's lifecycle status. |
@@ -30,6 +33,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `get_admin() -> Address` | Return the configured admin. |
 | `get_token() -> Address` | Return the configured token. |
 | `counter() -> u64` | Return the number of transfers created. |
+
 
 ## Build
 

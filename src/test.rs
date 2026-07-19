@@ -43,6 +43,7 @@ fn setup<'a>() -> Setup<'a> {
     let contract_id = env.register(RemitFlowContract, ());
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
+    client.add_caller(&from);
 
     Setup {
         env,
@@ -329,6 +330,38 @@ fn test_count_by_status_tracks_lifecycle() {
 
     assert_eq!(s.client.count_by_status(&Status::Pending), 1);
     assert_eq!(s.client.count_by_status(&Status::Claimed), 1);
+}
+
+#[test]
+fn test_allowlist_gating() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    
+    // stranger is not allowed initially
+    assert!(!s.client.is_caller_allowed(&stranger));
+    
+    let res = s.client.try_create_transfer(&stranger, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::CallerNotAllowed)));
+    
+    // add stranger to allowlist
+    s.client.add_caller(&stranger);
+    assert!(s.client.is_caller_allowed(&stranger));
+    
+    // stranger should now be able to create transfer
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&stranger, &1_000);
+    
+    let id = s.client.create_transfer(&stranger, &s.recipient, &100, &expiry);
+    assert_eq!(id, 1);
+    
+    // remove stranger from allowlist
+    s.client.remove_caller(&stranger);
+    assert!(!s.client.is_caller_allowed(&stranger));
+    
+    // stranger should be blocked again
+    let res2 = s.client.try_create_transfer(&stranger, &s.recipient, &100, &expiry);
+    assert_eq!(res2, Err(Ok(crate::error::Error::CallerNotAllowed)));
 }
 
 // Admin-only guard tests

@@ -25,6 +25,8 @@ pub enum DataKey {
     Paused,
     /// A single transfer record keyed by its id (persistent storage).
     Transfer(u64),
+    /// Flag indicating whether an address is allowed as a privileged caller (persistent storage).
+    AllowedCaller(Address),
 }
 
 /// Extend the time-to-live of the instance storage entry.
@@ -105,3 +107,25 @@ pub fn get_transfer(env: &Env, id: u64) -> Option<Transfer> {
 pub fn has_transfer(env: &Env, id: u64) -> bool {
     env.storage().persistent().has(&DataKey::Transfer(id))
 }
+
+/// Store a caller's allowlist status in persistent storage.
+pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
+    let key = DataKey::AllowedCaller(caller.clone());
+    if allowed {
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+    } else {
+        env.storage().persistent().remove(&key);
+    }
+}
+
+/// Check if a caller is allowed from persistent storage.
+pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
+    let key = DataKey::AllowedCaller(caller.clone());
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+

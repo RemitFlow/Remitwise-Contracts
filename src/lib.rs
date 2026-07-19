@@ -116,6 +116,9 @@ impl RemitFlowContract {
         if storage::get_paused(&env) {
             return Err(Error::ContractPaused);
         }
+        if !storage::is_caller_allowed(&env, &from) {
+            return Err(Error::CallerNotAllowed);
+        }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
@@ -346,5 +349,34 @@ impl RemitFlowContract {
             id += 1;
         }
         count
+    }
+
+    /// Add a caller to the allowlist of privileged callers.
+    ///
+    /// Only the administrator may add callers.
+    pub fn add_caller(env: Env, caller: Address) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_caller_allowed(&env, &caller, true);
+        storage::extend_instance(&env);
+        events::caller_added(&env, &caller);
+        Ok(())
+    }
+
+    /// Remove a caller from the allowlist of privileged callers.
+    ///
+    /// Only the administrator may remove callers.
+    pub fn remove_caller(env: Env, caller: Address) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_caller_allowed(&env, &caller, false);
+        storage::extend_instance(&env);
+        events::caller_removed(&env, &caller);
+        Ok(())
+    }
+
+    /// Return true if the caller is on the privileged callers allowlist.
+    pub fn is_caller_allowed(env: Env, caller: Address) -> bool {
+        storage::is_caller_allowed(&env, &caller)
     }
 }
