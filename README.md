@@ -133,3 +133,26 @@ Licensed under the MIT License.
 - Archive old transfers off-chain to free storage
 - Keep page limits at 50 or below for predictable gas
 - Monitor TTL to prevent garbage collection of active entries
+
+## Upgrade Authority Model
+
+The RemitFlow contract follows a single-admin authority model for upgrades.
+
+### Authority
+
+- The admin address set at initialization is the sole upgrade authority
+- Only the admin can pause/unpause the contract
+- Admin key compromise would allow an attacker to pause the contract indefinitely
+
+### Upgrade Process
+
+1. Deploy new WASM with stellar contract deploy
+2. Invoke migrate function (if added in future) or redeploy
+3. Existing transfer state is stored per-contract-instance
+
+### Security Considerations
+
+- Use a hardware wallet or multisig for the admin key
+- Consider a timelock for sensitive admin operations
+- The admin cannot steal escrowed funds (only pause new transfers)
+- Future versions may add admin transfer or multisig support
