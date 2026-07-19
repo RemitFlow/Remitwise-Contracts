@@ -107,3 +107,29 @@ before the expiry timestamp; cancellations are only allowed strictly after it.
 ## License
 
 Licensed under the MIT License.
+
+## Resource Costs
+
+### CPU Instructions
+
+| Operation | CPU (approx) | Notes |
+|-----------|-------------|-------|
+| initialize | ~2M | One-time setup |
+| create_transfer | ~8M | Token transfer + storage write |
+| claim_transfer | ~7M | Token transfer + storage update |
+| cancel_transfer | ~7M | Token transfer + storage update |
+| pause / unpause | ~1M | Simple flag toggle |
+
+### Storage Footprint
+
+| Item | Persistent | Instance | TTL |
+|------|-----------|----------|-----|
+| Transfer record | 1 per transfer | - | Extended on write |
+| Admin + Token | - | 2 | Extended on write |
+
+### Gas Optimization Tips
+
+- Use get_transfers_paged instead of multiple get_transfer calls
+- Archive old transfers off-chain to free storage
+- Keep page limits at 50 or below for predictable gas
+- Monitor TTL to prevent garbage collection of active entries
