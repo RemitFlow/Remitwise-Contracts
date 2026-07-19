@@ -13,6 +13,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | --- | --- |
 | `initialize(admin, token)` | Configure the admin and token; callable once. |
 | `create_transfer(from, recipient, amount, expiry) -> u64` | Lock funds in escrow and return the transfer id. Caller `from` must be allowlisted. |
+| `batch_operations(operations) -> Vec<BatchOperationResult>` | Atomically execute an ordered batch of create, claim, and cancel operations. |
 | `claim_transfer(id, recipient)` | Recipient claims a pending, unexpired transfer. |
 | `cancel_transfer(id, from)` | Sender reclaims a pending transfer after expiry. |
 | `pause()` | Admin pauses creation of new transfers. |
@@ -107,6 +108,14 @@ Each transfer moves through the following states:
 
 Only `Pending` transfers can be claimed or cancelled. Claims must happen on or
 before the expiry timestamp; cancellations are only allowed strictly after it.
+
+## Batch operations
+
+`batch_operations` accepts an ordered `Vec<BatchOperation>` containing
+`Create`, `Claim`, and `Cancel` variants. It returns one result per operation,
+including the id assigned to each created transfer. The call is atomic: if any
+operation fails validation or authorization, the entire batch is rolled back,
+including earlier token transfers, state changes, and events.
 
 ## License
 

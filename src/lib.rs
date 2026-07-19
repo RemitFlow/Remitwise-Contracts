@@ -19,7 +19,7 @@ mod test_utils;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
-use crate::types::{Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -51,6 +51,42 @@ pub struct RemitFlowContract;
 
 #[contractimpl]
 impl RemitFlowContract {
+    /// Execute several transfer operations atomically in one contract call.
+    ///
+    /// Operations run in order. If any operation fails, the error is returned
+    /// and Soroban rolls back every token movement, storage write, and event
+    /// produced earlier in the batch.
+    pub fn batch_operations(
+        env: Env,
+        operations: Vec<BatchOperation>,
+    ) -> Result<Vec<BatchOperationResult>, Error> {
+        let mut results = Vec::new(&env);
+        for operation in operations.iter() {
+            let result = match operation {
+                BatchOperation::Create(params) => {
+                    let id = Self::create_transfer(
+                        env.clone(),
+                        params.from,
+                        params.recipient,
+                        params.amount,
+                        params.expiry,
+                    )?;
+                    BatchOperationResult::Created(id)
+                },
+                BatchOperation::Claim(params) => {
+                    Self::claim_transfer(env.clone(), params.id, params.recipient)?;
+                    BatchOperationResult::Claimed
+                },
+                BatchOperation::Cancel(params) => {
+                    Self::cancel_transfer(env.clone(), params.id, params.from)?;
+                    BatchOperationResult::Cancelled
+                },
+            };
+            results.push_back(result);
+        }
+        Ok(results)
+    }
+
     /// Initialize the contract with an administrator and token address.
     ///
     /// Can only be called once; subsequent calls return
@@ -137,6 +173,11 @@ impl RemitFlowContract {
         let updated_total =
             math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
         if updated_total > MAX_TOTAL_ESCROWED {
+        if total_escrowed
+            .checked_add(amount)
+            .map(|total| total > MAX_TOTAL_ESCROWED)
+            .unwrap_or(true)
+        {
             return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();

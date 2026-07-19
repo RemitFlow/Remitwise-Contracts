@@ -19,6 +19,13 @@ struct Setup<'a> {
     from: Address,
     recipient: Address,
 }
+use soroban_sdk::{vec, Address, Env};
+
+use crate::test_utils::{TestFixture, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT};
+use crate::types::{
+    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
+};
+use crate::{RemitFlowContract, RemitFlowContractClient};
 
 impl Setup<'_> {
     fn token_client(&self) -> TokenClient<'_> {
@@ -40,7 +47,10 @@ impl Setup<'_> {
 }
 
 /// Deploy a Stellar Asset Contract and return its address and clients.
-fn create_token<'a>(env: &Env, admin: &Address) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
+fn create_token<'a>(
+    env: &Env,
+    admin: &Address,
+) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
     let contract = env.register_stellar_asset_contract_v2(admin.clone());
     let address = contract.address();
     (
@@ -75,6 +85,80 @@ fn setup<'a>() -> Setup<'a> {
         from,
         recipient,
     }
+fn setup<'a>() -> TestFixture<'a> {
+    TestFixture::new()
+}
+
+#[test]
+fn test_batch_operations_executes_successful_batch_in_order() {
+    let s = setup();
+    let expiry = s.future_expiry();
+    let operations = vec![
+        &s.env,
+        BatchOperation::Create(CreateTransferOperation {
+            from: s.from.clone(),
+            recipient: s.recipient.clone(),
+            amount: 300,
+            expiry,
+        }),
+        BatchOperation::Create(CreateTransferOperation {
+            from: s.from.clone(),
+            recipient: s.recipient.clone(),
+            amount: 200,
+            expiry,
+        }),
+        BatchOperation::Claim(ClaimTransferOperation {
+            id: 1,
+            recipient: s.recipient.clone(),
+        }),
+    ];
+
+    let results = s.client.batch_operations(&operations);
+
+    assert_eq!(
+        results,
+        vec![
+            &s.env,
+            BatchOperationResult::Created(1),
+            BatchOperationResult::Created(2),
+            BatchOperationResult::Claimed,
+        ]
+    );
+    assert_eq!(s.client.counter(), 2);
+    assert_eq!(s.client.get_status(&1), Status::Claimed);
+    assert_eq!(s.client.get_status(&2), Status::Pending);
+    assert_eq!(s.token_client().balance(&s.from), 500);
+    assert_eq!(s.token_client().balance(&s.recipient), 300);
+    assert_eq!(s.token_client().balance(&s.client.address), 200);
+}
+
+#[test]
+fn test_batch_operations_rolls_back_on_partial_failure() {
+    let s = setup();
+    let expiry = s.future_expiry();
+    let operations = vec![
+        &s.env,
+        BatchOperation::Create(CreateTransferOperation {
+            from: s.from.clone(),
+            recipient: s.recipient.clone(),
+            amount: 300,
+            expiry,
+        }),
+        BatchOperation::Create(CreateTransferOperation {
+            from: s.from.clone(),
+            recipient: s.from.clone(),
+            amount: 200,
+            expiry,
+        }),
+    ];
+
+    let result = s.client.try_batch_operations(&operations);
+
+    assert_eq!(result, Err(Ok(crate::error::Error::SameParty)));
+    assert_eq!(s.client.counter(), 0);
+    assert!(!s.client.transfer_exists(&1));
+    assert_eq!(s.token_client().balance(&s.from), DEFAULT_SENDER_BALANCE);
+    assert_eq!(s.token_client().balance(&s.client.address), 0);
 }
 
 #[test]
@@ -130,7 +214,9 @@ fn test_create_transfer_moves_funds_to_escrow() {
 fn test_create_transfer_rejects_non_positive_amount() {
     let s = setup();
     let expiry = s.future_expiry();
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &0, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &0, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidAmount)));
 }
 
@@ -138,7 +224,9 @@ fn test_create_transfer_rejects_non_positive_amount() {
 fn test_create_transfer_rejects_past_expiry() {
     let s = setup();
     s.env.ledger().with_mut(|l| l.timestamp = 5_000);
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &1_000);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &1_000);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidExpiry)));
 }
 
@@ -150,10 +238,7 @@ fn test_claim_transfer_pays_recipient() {
 
     s.client.claim_transfer(&id, &s.recipient);
 
-    assert_eq!(
-        token_client.balance(&s.recipient),
-        DEFAULT_TRANSFER_AMOUNT
-    );
+    assert_eq!(token_client.balance(&s.recipient), DEFAULT_TRANSFER_AMOUNT);
     assert_eq!(token_client.balance(&s.client.address), 0);
     assert_eq!(s.client.get_transfer(&id).status, Status::Claimed);
 }
@@ -163,7 +248,9 @@ fn test_claim_transfer_wrong_recipient_fails() {
     let s = setup();
     let stranger = Address::generate(&s.env);
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &400, &expiry);
 
     let res = s.client.try_claim_transfer(&id, &stranger);
     assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
@@ -173,7 +260,9 @@ fn test_claim_transfer_wrong_recipient_fails() {
 fn test_claim_after_expiry_fails() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &400, &expiry);
 
     s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
     let res = s.client.try_claim_transfer(&id, &s.recipient);
@@ -190,10 +279,7 @@ fn test_cancel_after_expiry_refunds_sender() {
     s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
     s.client.cancel_transfer(&id, &s.from);
 
-    assert_eq!(
-        token_client.balance(&s.from),
-        DEFAULT_SENDER_BALANCE
-    );
+    assert_eq!(token_client.balance(&s.from), DEFAULT_SENDER_BALANCE);
     assert_eq!(token_client.balance(&s.client.address), 0);
     assert_eq!(s.client.get_transfer(&id).status, Status::Cancelled);
 }
@@ -202,7 +288,9 @@ fn test_cancel_after_expiry_refunds_sender() {
 fn test_cancel_before_expiry_fails() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &400, &expiry);
 
     let res = s.client.try_cancel_transfer(&id, &s.from);
     assert_eq!(res, Err(Ok(crate::error::Error::NotExpired)));
@@ -213,7 +301,9 @@ fn test_cancel_by_non_sender_fails() {
     let s = setup();
     let stranger = Address::generate(&s.env);
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &400, &expiry);
 
     s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
     let res = s.client.try_cancel_transfer(&id, &stranger);
@@ -224,7 +314,9 @@ fn test_cancel_by_non_sender_fails() {
 fn test_claim_twice_fails() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &400, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &400, &expiry);
 
     s.client.claim_transfer(&id, &s.recipient);
     let res = s.client.try_claim_transfer(&id, &s.recipient);
@@ -242,8 +334,12 @@ fn test_get_unknown_transfer_fails() {
 fn test_counter_increments_across_transfers() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id1 = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
-    let id2 = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id1 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id2 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -254,7 +350,9 @@ fn test_counter_increments_across_transfers() {
 fn test_create_transfer_rejects_self_transfer() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let res = s.client.try_create_transfer(&s.from, &s.from, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.from, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::SameParty)));
 }
 
@@ -274,10 +372,14 @@ fn test_create_transfer_rejects_when_global_escrow_cap_is_reached() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
 
-    let first = s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_TOTAL_ESCROWED, &expiry);
+    let first =
+        s.client
+            .create_transfer(&s.from, &s.recipient, &crate::MAX_TOTAL_ESCROWED, &expiry);
     assert_eq!(first, 1);
 
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &1, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &1, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::EscrowCapReached)));
 }
 
@@ -285,7 +387,9 @@ fn test_create_transfer_rejects_when_global_escrow_cap_is_reached() {
 fn test_create_transfer_rejects_far_future_expiry() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + crate::MAX_EXPIRY_WINDOW + 1;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::ExpiryTooFar)));
 }
 
@@ -296,8 +400,11 @@ fn test_total_escrowed_tracks_pending_amounts() {
 
     assert_eq!(s.client.total_escrowed(), 0);
 
-    let id1 = s.client.create_transfer(&s.from, &s.recipient, &300, &expiry);
-    s.client.create_transfer(&s.from, &s.recipient, &200, &expiry);
+    let id1 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &300, &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
     assert_eq!(s.client.total_escrowed(), 500);
 
     s.client.claim_transfer(&id1, &s.recipient);
@@ -310,7 +417,8 @@ fn test_count_for_sender_and_recipient() {
     let other = Address::generate(&s.env);
     let expiry = s.env.ledger().timestamp() + 1_000;
 
-    s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     s.client.create_transfer(&s.from, &other, &100, &expiry);
 
     assert_eq!(s.client.count_for_sender(&s.from), 2);
@@ -336,7 +444,8 @@ fn test_get_transfers_paged_respects_limit_and_start() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
     for _ in 0..3 {
-        s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+        s.client
+            .create_transfer(&s.from, &s.recipient, &100, &expiry);
     }
 
     let first = s.client.get_transfers_paged(&1, &2);
@@ -356,7 +465,9 @@ fn test_get_transfers_paged_respects_limit_and_start() {
 fn test_is_expired_reflects_ledger_time() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
 
     assert!(!s.client.is_expired(&id));
 
@@ -373,12 +484,16 @@ fn test_pause_blocks_create_transfer() {
     s.client.pause();
     assert!(s.client.is_paused());
 
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
 
     s.client.unpause();
     assert!(!s.client.is_paused());
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(id, 1);
 }
 
@@ -386,8 +501,12 @@ fn test_pause_blocks_create_transfer() {
 fn test_count_by_status_tracks_lifecycle() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let id1 = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
-    let _id2 = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id1 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let _id2 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
 
     assert_eq!(s.client.count_by_status(&Status::Pending), 2);
     assert_eq!(s.client.count_by_status(&Status::Claimed), 0);
@@ -403,30 +522,36 @@ fn test_allowlist_gating() {
     let s = setup();
     let stranger = Address::generate(&s.env);
     let expiry = s.env.ledger().timestamp() + 1_000;
-    
+
     // stranger is not allowed initially
     assert!(!s.client.is_caller_allowed(&stranger));
-    
-    let res = s.client.try_create_transfer(&stranger, &s.recipient, &100, &expiry);
+
+    let res = s
+        .client
+        .try_create_transfer(&stranger, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::CallerNotAllowed)));
-    
+
     // add stranger to allowlist
     s.client.add_caller(&stranger);
     assert!(s.client.is_caller_allowed(&stranger));
-    
+
     // stranger should now be able to create transfer
     let token_admin = StellarAssetClient::new(&s.env, &s.token);
     token_admin.mint(&stranger, &1_000);
-    
-    let id = s.client.create_transfer(&stranger, &s.recipient, &100, &expiry);
+
+    let id = s
+        .client
+        .create_transfer(&stranger, &s.recipient, &100, &expiry);
     assert_eq!(id, 1);
-    
+
     // remove stranger from allowlist
     s.client.remove_caller(&stranger);
     assert!(!s.client.is_caller_allowed(&stranger));
-    
+
     // stranger should be blocked again
-    let res2 = s.client.try_create_transfer(&stranger, &s.recipient, &100, &expiry);
+    let res2 = s
+        .client
+        .try_create_transfer(&stranger, &s.recipient, &100, &expiry);
     assert_eq!(res2, Err(Ok(crate::error::Error::CallerNotAllowed)));
 }
 
@@ -542,7 +667,9 @@ fn test_pause_and_unpause_state_changes() {
     assert!(s.client.is_paused());
 
     // Verify transfers are blocked while paused
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
 
     // Unpause and verify
@@ -550,7 +677,9 @@ fn test_pause_and_unpause_state_changes() {
     assert!(!s.client.is_paused());
 
     // Verify transfers work again
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(id, 1);
 }
 
@@ -607,7 +736,9 @@ fn test_max_amount_boundary_accepted() {
     let token_admin = StellarAssetClient::new(&s.env, &s.token);
     token_admin.mint(&s.from, &crate::MAX_AMOUNT);
 
-    let id = s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
     assert_eq!(s.client.get_transfer(&id).amount, crate::MAX_AMOUNT);
 }
 
@@ -615,7 +746,9 @@ fn test_max_amount_boundary_accepted() {
 fn test_max_amount_plus_one_rejected() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &(crate::MAX_AMOUNT + 1), &expiry);
+    let res =
+        s.client
+            .try_create_transfer(&s.from, &s.recipient, &(crate::MAX_AMOUNT + 1), &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::AmountTooLarge)));
 }
 
@@ -623,7 +756,9 @@ fn test_max_amount_plus_one_rejected() {
 fn test_i128_max_rejected() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &i128::MAX, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &i128::MAX, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::AmountTooLarge)));
 }
 
@@ -631,7 +766,9 @@ fn test_i128_max_rejected() {
 fn test_zero_amount_rejected() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &0, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &0, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidAmount)));
 }
 
@@ -639,7 +776,9 @@ fn test_zero_amount_rejected() {
 fn test_negative_amount_rejected() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &-1, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &-1, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidAmount)));
 }
 
@@ -648,7 +787,9 @@ fn test_max_expiry_window_accepted() {
     let s = setup();
     let now = s.env.ledger().timestamp();
     let expiry = now + crate::MAX_EXPIRY_WINDOW;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(s.client.get_transfer(&id).expiry, expiry);
 }
 
@@ -657,7 +798,9 @@ fn test_max_expiry_window_plus_one_rejected() {
     let s = setup();
     let now = s.env.ledger().timestamp();
     let expiry = now + crate::MAX_EXPIRY_WINDOW + 1;
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::ExpiryTooFar)));
 }
 
@@ -665,7 +808,9 @@ fn test_max_expiry_window_plus_one_rejected() {
 fn test_expiry_at_now_rejected() {
     let s = setup();
     let now = s.env.ledger().timestamp();
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &now);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &now);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidExpiry)));
 }
 
@@ -673,7 +818,9 @@ fn test_expiry_at_now_rejected() {
 fn test_expiry_one_second_accepted() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1;
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(s.client.get_transfer(&id).expiry, expiry);
 }
 
@@ -683,7 +830,9 @@ fn test_counter_at_u64_max_minus_one() {
     let expiry = s.env.ledger().timestamp() + 1_000;
     // Simulate counter at u64::MAX - 1
     crate::storage::set_counter(&s.env, u64::MAX - 1);
-    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(id, u64::MAX);
 }
 
@@ -692,7 +841,9 @@ fn test_counter_at_u64_max_overflows() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
     crate::storage::set_counter(&s.env, u64::MAX);
-    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::CounterOverflow)));
 }
 
@@ -702,7 +853,8 @@ fn test_total_escrowed_with_max_amount() {
     let token_admin = StellarAssetClient::new(&s.env, &s.token);
     token_admin.mint(&s.from, &crate::MAX_AMOUNT);
     let expiry = s.env.ledger().timestamp() + 1_000;
-    s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
     assert_eq!(s.client.total_escrowed(), crate::MAX_AMOUNT);
 }
 
@@ -713,8 +865,10 @@ fn test_total_escrowed_saturating_with_many_transfers() {
     token_admin.mint(&s.from, &(i128::MAX / 2));
     let expiry = s.env.ledger().timestamp() + 1_000;
     // Create transfer with a very large amount, then another
-    s.client.create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
-    s.client.create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
     // Should saturate at i128::MAX, not panic
     let total = s.client.total_escrowed();
     assert!(total > 0);
@@ -731,7 +885,8 @@ fn test_get_transfers_paged_beyond_counter() {
 fn test_get_transfers_paged_start_at_zero_clamped_to_one() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;
-    s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    s.client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
     let page = s.client.get_transfers_paged(&0, &5);
     assert_eq!(page.len(), 1);
     assert_eq!(page.get(0).unwrap().id, 1);
