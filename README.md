@@ -26,7 +26,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `count_by_status(status) -> u64` | Count created transfers with a given status. |
 | `count_for_sender(from) -> u64` | Count transfers funded by an address. |
 | `count_for_recipient(recipient) -> u64` | Count transfers targeting an address. |
-| `total_escrowed() -> i128` | Sum the amounts of all pending transfers. |
+| `total_escrowed() -> i128` | Sum the amounts of all pending transfers using saturating arithmetic so the aggregate clamps instead of overflowing. |
 | `get_admin() -> Address` | Return the configured admin. |
 | `get_token() -> Address` | Return the configured token. |
 | `counter() -> u64` | Return the number of transfers created. |
@@ -70,6 +70,10 @@ stellar contract invoke \
   --admin <ADMIN_ADDRESS> \
   --token <TOKEN_ADDRESS>
 ```
+
+## Aggregate behaviour
+
+Aggregate helpers now use saturating fallbacks so counters and tallies avoid overflowing in extreme cases. This keeps transfer counts and escrow totals bounded even when many transfers are recorded.
 
 ## Transfer lifecycle
 
