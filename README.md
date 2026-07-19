@@ -89,22 +89,32 @@ The compiled artifact is written to
 
 ## Deploy
 
-Deploy the WASM and initialize it using the Stellar CLI:
+Use the automated script to build, deploy, and initialize in one step:
 
 ```sh
-stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/remitflow_contract.wasm \
-  --source deployer \
-  --network testnet
-
-stellar contract invoke \
-  --id <CONTRACT_ID> \
-  --source deployer \
-  --network testnet \
-  -- initialize \
-  --admin <ADMIN_ADDRESS> \
-  --token <TOKEN_ADDRESS>
+./scripts/deploy-and-initialize.sh \
+  --network  testnet \
+  --source   my-key \
+  --admin    GABC...XYZ \
+  --token    CABC...XYZ
 ```
+
+Or via `make`:
+
+```sh
+make deploy \
+  NETWORK=testnet \
+  SOURCE=my-key \
+  ADMIN=GABC...XYZ \
+  TOKEN=CABC...XYZ
+```
+
+The script builds the WASM, deploys it, and calls `initialize` in one
+transaction sequence. It prints the contract ID and suggested next steps on
+success. Pass `--skip-build` to reuse an already-compiled WASM.
+
+See the [Deployment Guide](docs/deployment-guide.md) for the full options
+reference, manual CLI steps, and mainnet instructions.
 
 ## Aggregate behaviour
 
