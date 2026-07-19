@@ -53,6 +53,10 @@ make test
 cargo test
 ```
 
+Reusable checked arithmetic, saturating aggregate helpers, and basis-point fee
+calculations are provided by `src/math.rs`. See the
+[math module guide](docs/math-module.md) for behavior and usage rules.
+
 Generate an HTML coverage report:
 
 ```sh

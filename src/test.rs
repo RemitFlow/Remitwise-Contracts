@@ -1,12 +1,14 @@
 #![cfg(test)]
 
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::Address;
+use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::{Address, Env};
 
 use crate::test_utils::{
-    TestFixture, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
+    DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
 use crate::types::Status;
+use crate::{RemitFlowContract, RemitFlowContractClient};
 
 /// Test harness bundling the contract client, token, and key addresses.
 struct Setup<'a> {
@@ -16,6 +18,25 @@ struct Setup<'a> {
     admin: Address,
     from: Address,
     recipient: Address,
+}
+
+impl Setup<'_> {
+    fn token_client(&self) -> TokenClient<'_> {
+        TokenClient::new(&self.env, &self.token)
+    }
+
+    fn future_expiry(&self) -> u64 {
+        self.env.ledger().timestamp() + DEFAULT_EXPIRY_OFFSET
+    }
+
+    fn create_default_transfer(&self) -> u64 {
+        self.client.create_transfer(
+            &self.from,
+            &self.recipient,
+            &DEFAULT_TRANSFER_AMOUNT,
+            &self.future_expiry(),
+        )
+    }
 }
 
 /// Deploy a Stellar Asset Contract and return its address and clients.
@@ -54,8 +75,6 @@ fn setup<'a>() -> Setup<'a> {
         from,
         recipient,
     }
-fn setup<'a>() -> TestFixture<'a> {
-    TestFixture::new()
 }
 
 #[test]
@@ -302,14 +321,14 @@ fn test_count_for_sender_and_recipient() {
 
 #[test]
 fn test_saturating_increment_caps_at_u64_max() {
-    assert_eq!(crate::saturating_increment_u64(7), 8);
-    assert_eq!(crate::saturating_increment_u64(u64::MAX), u64::MAX);
+    assert_eq!(crate::math::checked_increment(7), Some(8));
+    assert_eq!(crate::math::checked_increment(u64::MAX), None);
 }
 
 #[test]
 fn test_saturating_add_with_cap_clamps_at_cap() {
-    assert_eq!(crate::saturating_add_with_cap(5, 10, 12), 12);
-    assert_eq!(crate::saturating_add_with_cap(5, 2, 12), 7);
+    assert_eq!(crate::math::saturating_add_with_cap(5, 10, 12), 12);
+    assert_eq!(crate::math::saturating_add_with_cap(5, 2, 12), 7);
 }
 
 #[test]
@@ -576,6 +595,8 @@ fn test_admin_operations_require_initialization() {
 
     let res = client.try_unpause();
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+}
+
 // --- Arithmetic boundary tests ---
 
 #[test]
