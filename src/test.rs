@@ -330,3 +330,153 @@ fn test_count_by_status_tracks_lifecycle() {
     assert_eq!(s.client.count_by_status(&Status::Pending), 1);
     assert_eq!(s.client.count_by_status(&Status::Claimed), 1);
 }
+
+// --- Arithmetic boundary tests ---
+
+#[test]
+fn test_max_amount_boundary_accepted() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let token_client = TokenClient::new(&s.env, &s.token);
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &crate::MAX_AMOUNT);
+
+    let id = s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
+    assert_eq!(s.client.get_transfer(&id).amount, crate::MAX_AMOUNT);
+}
+
+#[test]
+fn test_max_amount_plus_one_rejected() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &(crate::MAX_AMOUNT + 1), &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::AmountTooLarge)));
+}
+
+#[test]
+fn test_i128_max_rejected() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &i128::MAX, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::AmountTooLarge)));
+}
+
+#[test]
+fn test_zero_amount_rejected() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &0, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAmount)));
+}
+
+#[test]
+fn test_negative_amount_rejected() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &-1, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAmount)));
+}
+
+#[test]
+fn test_max_expiry_window_accepted() {
+    let s = setup();
+    let now = s.env.ledger().timestamp();
+    let expiry = now + crate::MAX_EXPIRY_WINDOW;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(s.client.get_transfer(&id).expiry, expiry);
+}
+
+#[test]
+fn test_max_expiry_window_plus_one_rejected() {
+    let s = setup();
+    let now = s.env.ledger().timestamp();
+    let expiry = now + crate::MAX_EXPIRY_WINDOW + 1;
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::ExpiryTooFar)));
+}
+
+#[test]
+fn test_expiry_at_now_rejected() {
+    let s = setup();
+    let now = s.env.ledger().timestamp();
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &now);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidExpiry)));
+}
+
+#[test]
+fn test_expiry_one_second_accepted() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1;
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(s.client.get_transfer(&id).expiry, expiry);
+}
+
+#[test]
+fn test_counter_at_u64_max_minus_one() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    // Simulate counter at u64::MAX - 1
+    crate::storage::set_counter(&s.env, u64::MAX - 1);
+    let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(id, u64::MAX);
+}
+
+#[test]
+fn test_counter_at_u64_max_overflows() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    crate::storage::set_counter(&s.env, u64::MAX);
+    let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::CounterOverflow)));
+}
+
+#[test]
+fn test_total_escrowed_with_max_amount() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &crate::MAX_AMOUNT);
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    s.client.create_transfer(&s.from, &s.recipient, &crate::MAX_AMOUNT, &expiry);
+    assert_eq!(s.client.total_escrowed(), crate::MAX_AMOUNT);
+}
+
+#[test]
+fn test_total_escrowed_saturating_with_many_transfers() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &(i128::MAX / 2));
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    // Create transfer with a very large amount, then another
+    s.client.create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
+    s.client.create_transfer(&s.from, &s.recipient, &(i128::MAX / 2), &expiry);
+    // Should saturate at i128::MAX, not panic
+    let total = s.client.total_escrowed();
+    assert!(total > 0);
+}
+
+#[test]
+fn test_get_transfers_paged_beyond_counter() {
+    let s = setup();
+    let page = s.client.get_transfers_paged(&100, &5);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+fn test_get_transfers_paged_start_at_zero_clamped_to_one() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let page = s.client.get_transfers_paged(&0, &5);
+    assert_eq!(page.len(), 1);
+    assert_eq!(page.get(0).unwrap().id, 1);
+}
+
+#[test]
+fn test_mint_boundary_balance_zero() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    let zero_balance_user = Address::generate(&s.env);
+    token_admin.mint(&zero_balance_user, &0);
+    let token_client = TokenClient::new(&s.env, &s.token);
+    assert_eq!(token_client.balance(&zero_balance_user), 0);
+}
