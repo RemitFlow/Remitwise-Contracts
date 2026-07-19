@@ -48,4 +48,3 @@ pub fn caller_removed(env: &Env, caller: &Address) {
     let topics = (Symbol::new(env, "caller_removed"),);
     env.events().publish(topics, caller.clone());
 }
-

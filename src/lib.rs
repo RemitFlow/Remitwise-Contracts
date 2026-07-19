@@ -26,7 +26,7 @@ fn saturating_add_with_cap(value: u64, delta: u64, cap: u64) -> u64 {
 }
 
 use crate::error::Error;
-use crate::types::{Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -58,6 +58,42 @@ pub struct RemitFlowContract;
 
 #[contractimpl]
 impl RemitFlowContract {
+    /// Execute several transfer operations atomically in one contract call.
+    ///
+    /// Operations run in order. If any operation fails, the error is returned
+    /// and Soroban rolls back every token movement, storage write, and event
+    /// produced earlier in the batch.
+    pub fn batch_operations(
+        env: Env,
+        operations: Vec<BatchOperation>,
+    ) -> Result<Vec<BatchOperationResult>, Error> {
+        let mut results = Vec::new(&env);
+        for operation in operations.iter() {
+            let result = match operation {
+                BatchOperation::Create(params) => {
+                    let id = Self::create_transfer(
+                        env.clone(),
+                        params.from,
+                        params.recipient,
+                        params.amount,
+                        params.expiry,
+                    )?;
+                    BatchOperationResult::Created(id)
+                },
+                BatchOperation::Claim(params) => {
+                    Self::claim_transfer(env.clone(), params.id, params.recipient)?;
+                    BatchOperationResult::Claimed
+                },
+                BatchOperation::Cancel(params) => {
+                    Self::cancel_transfer(env.clone(), params.id, params.from)?;
+                    BatchOperationResult::Cancelled
+                },
+            };
+            results.push_back(result);
+        }
+        Ok(results)
+    }
+
     /// Initialize the contract with an administrator and token address.
     ///
     /// Can only be called once; subsequent calls return
@@ -141,8 +177,12 @@ impl RemitFlowContract {
             return Err(Error::AmountTooLarge);
         }
         let total_escrowed = Self::total_escrowed(env.clone());
-        if total_escrowed + amount > MAX_TOTAL_ESCROWED {
-            return Err(Error::AmountTooLarge);
+        if total_escrowed
+            .checked_add(amount)
+            .map(|total| total > MAX_TOTAL_ESCROWED)
+            .unwrap_or(true)
+        {
+            return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();
         if expiry <= now {
@@ -161,11 +201,7 @@ impl RemitFlowContract {
             return Err(Error::CounterOverflow);
         }
 
-        token::Client::new(&env, &token).transfer(
-            &from,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
         let transfer = Transfer {
             id,
