@@ -22,7 +22,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `remove_caller(caller)` | Remove a caller from the allowlist of privileged callers (admin-only). |
 | `is_caller_allowed(caller) -> bool` | Check whether a caller is on the privileged callers allowlist. |
 | `get_transfer(id) -> Transfer` | Read a stored transfer record. |
-| `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read a batch of transfers. |
+| `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read up to 100 transfers beginning at the inclusive transfer id. |
 | `get_status(id) -> Status` | Read just a transfer's lifecycle status. |
 | `is_expired(id) -> bool` | Check whether a transfer has passed its expiry. |
 | `is_paused() -> bool` | Report whether the contract is paused. |
@@ -34,6 +34,21 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `get_admin() -> Address` | Return the configured admin. |
 | `get_token() -> Address` | Return the configured token. |
 | `counter() -> u64` | Return the number of transfers created. |
+
+### Paginating transfers
+
+Call `get_transfers_paged(start_id, limit)` to read records without loading the
+entire transfer history. Transfer ids begin at `1`, and `start_id` is
+inclusive, so the next page begins at one more than the final id returned:
+
+```text
+get_transfers_paged(1, 25)
+get_transfers_paged(26, 25)
+```
+
+The contract returns at most `MAX_PAGE_SIZE` (100) records per call. A zero
+limit, an empty contract, or a start id beyond the current counter returns an
+empty vector. A start id of zero is treated as one.
 
 
 ## Build
