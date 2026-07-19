@@ -289,6 +289,18 @@ fn test_count_for_sender_and_recipient() {
 }
 
 #[test]
+fn test_saturating_increment_caps_at_u64_max() {
+    assert_eq!(crate::saturating_increment_u64(7), 8);
+    assert_eq!(crate::saturating_increment_u64(u64::MAX), u64::MAX);
+}
+
+#[test]
+fn test_saturating_add_with_cap_clamps_at_cap() {
+    assert_eq!(crate::saturating_add_with_cap(5, 10, 12), 12);
+    assert_eq!(crate::saturating_add_with_cap(5, 2, 12), 7);
+}
+
+#[test]
 fn test_get_transfers_paged_respects_limit_and_start() {
     let s = setup();
     let expiry = s.env.ledger().timestamp() + 1_000;

@@ -17,6 +17,14 @@ mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
+fn saturating_increment_u64(value: u64) -> u64 {
+    value.saturating_add(1)
+}
+
+fn saturating_add_with_cap(value: u64, delta: u64, cap: u64) -> u64 {
+    value.saturating_add(delta).min(cap)
+}
+
 use crate::error::Error;
 use crate::types::{Status, Transfer};
 
@@ -139,9 +147,10 @@ impl RemitFlowContract {
         }
         from.require_auth();
 
-        let id = storage::get_counter(&env)
-            .checked_add(1)
-            .ok_or(Error::CounterOverflow)?;
+        let id = saturating_increment_u64(storage::get_counter(&env));
+        if id == u64::MAX {
+            return Err(Error::CounterOverflow);
+        }
 
         token::Client::new(&env, &token).transfer(
             &from,
@@ -307,7 +316,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.from == from {
-                    count += 1;
+                    count = saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -326,7 +335,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.recipient == recipient {
-                    count += 1;
+                    count = saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -345,7 +354,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.status == status {
-                    count += 1;
+                    count = saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
