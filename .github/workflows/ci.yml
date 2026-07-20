@@ -34,3 +34,25 @@ jobs:
       - run: cargo build --release --target wasm32-unknown-unknown
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings
+
+  wasm-size:
+    name: Check WASM Size
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.81.0
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --target wasm32-unknown-unknown
+      - name: Check WASM size
+        run: |
+          WASM="target/wasm32-unknown-unknown/release/remitflow_contract.wasm"
+          SIZE=$(wc -c < "$WASM")
+          MAX_SIZE=65536
+          echo "WASM size: $SIZE bytes (max: $MAX_SIZE)"
+          if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+            echo "ERROR: WASM exceeds $MAX_SIZE bytes limit"
+            exit 1
+          fi
