@@ -107,3 +107,17 @@ before the expiry timestamp; cancellations are only allowed strictly after it.
 ## License
 
 Licensed under the MIT License.
+
+## Deployment Funding
+
+Deploying a Soroban contract requires the deployer account to hold sufficient XLM.
+
+- Contract deployment: approx 5 XLM for WASM upload and instance creation
+- Instance storage rent: approx 2 XLM for initial TTL allocation
+- Persistent storage rent: approx 0.5 XLM per transfer record
+- Transaction fee: 0.00001 XLM per invocation
+- TTL extension: approx 1 XLM per year
+
+Recommended minimum deployer balance: 20 XLM
+
+Testnet tokens available from Stellar Friendbot at https://friendbot.stellar.org
