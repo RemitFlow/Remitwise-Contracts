@@ -92,6 +92,13 @@ impl RemitFlowContract {
 
     /// Initialize the contract with an administrator and token address.
     ///
+    /// The provided address is treated as the custody holder for the contract's
+    /// administrative authority. The contract stores this address as the sole
+    /// admin and requires its authorization for privileged entrypoints. In
+    /// practice, this key should be managed off-chain with strong custody
+    /// controls because compromise would allow pause/unpause and allowlist
+    /// changes.
+    ///
     /// Can only be called once; subsequent calls return
     /// [`Error::AlreadyInitialized`].
     pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), Error> {
@@ -124,8 +131,9 @@ impl RemitFlowContract {
 
     /// Pause the contract, blocking creation of new transfers.
     ///
-    /// Only the administrator may pause. Claims and cancellations of
-    /// existing transfers remain available while paused.
+    /// The configured admin address is the only authority that may pause the
+    /// contract. Claims and cancellations of existing transfers remain
+    /// available while paused.
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
@@ -137,7 +145,8 @@ impl RemitFlowContract {
 
     /// Unpause the contract, re-enabling creation of new transfers.
     ///
-    /// Only the administrator may unpause.
+    /// The configured admin address is the only authority that may unpause the
+    /// contract.
     pub fn unpause(env: Env) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();

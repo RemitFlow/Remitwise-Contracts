@@ -51,6 +51,12 @@ limit, an empty contract, or a start id beyond the current counter returns an
 empty vector. A start id of zero is treated as one.
 
 
+## Admin key custody model
+
+The contract uses a single admin address that is configured once at initialization. That address is the only authority permitted to pause or unpause the contract and to manage the privileged caller allowlist. The contract does not include an on-chain admin rotation or multisig mechanism, so key custody remains an off-chain operational responsibility.
+
+Recommended practice is to hold the admin key in a hardware wallet or dedicated custody solution, ideally with a multisig or timelock guard for any sensitive operation. A compromised admin key can pause the contract and modify the allowlist, but it cannot directly withdraw escrowed funds from the contract.
+
 ## Build
 
 Build the optimized WASM with the pinned toolchain:

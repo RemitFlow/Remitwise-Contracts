@@ -557,6 +557,23 @@ fn test_allowlist_gating() {
 // Admin-only guard tests
 
 #[test]
+fn test_add_caller_requires_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token, _, _token_admin) = create_token(&env, &admin);
+
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token);
+
+    let caller = Address::generate(&env);
+    let res = client.try_add_caller(&caller);
+    assert!(res.is_err());
+}
+
+#[test]
 fn test_pause_requires_admin_auth() {
     let s = setup();
     let non_admin = Address::generate(&s.env);
