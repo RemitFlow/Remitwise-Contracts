@@ -8,9 +8,31 @@ remitflow-contract is a Soroban smart contract on the Stellar network. This page
 Only the configured administrator address can perform administrative operations. The contract enforces this by verifying `admin.require_auth()` for the following entrypoints:
 * `pause` / `unpause`
 * `add_caller` / `remove_caller`
+* `transfer_admin`
+
+## Admin Ownership Transfer (Two-Step)
+
+Transferring administrator ownership is a **two-step process** to prevent accidental lockout caused by typos or keys that cannot sign.
+
+### Step 1 — Nominate: `transfer_admin(new_admin)`
+* Only the current administrator may call this.
+* Stores `new_admin` as the *pending admin* in instance storage.
+* The current admin retains full control until the transfer is accepted.
+* Calling `transfer_admin` again replaces any previously nominated pending admin.
+* Emits an `admin_transfer_started` event containing both addresses.
+
+### Step 2 — Accept: `accept_admin()`
+* Must be called by the **nominated address** (not the current admin).
+* Requires `require_auth()` from the pending admin, proving that address can sign.
+* Overwrites the admin slot with the pending admin.
+* Clears the pending admin slot.
+* Emits an `admin_transfer_completed` event containing both addresses.
+
+### View: `get_pending_admin() -> Option<Address>`
+Returns the currently nominated pending admin, or `None` if no transfer is in progress.
 
 ## Privileged Callers Allowlist
-The contract maintains an allowlist of privileged callers who are authorized to lock funds and create new escrow transfers. 
+The contract maintains an allowlist of privileged callers who are authorized to lock funds and create new escrow transfers.
 * To create a transfer via `create_transfer`, the sender `from` address must be present on the allowlist (which is verified using `storage::is_caller_allowed`).
 * The administrator can add addresses to the allowlist using `add_caller(caller)` and remove them using `remove_caller(caller)`.
 * Anyone can query the allowlist status of an address using `is_caller_allowed(caller)`.
@@ -18,4 +40,3 @@ The contract maintains an allowlist of privileged callers who are authorized to 
 ## Transfer Claiming and Cancellation
 * `claim_transfer` requires authorization from the recipient address specified in the transfer.
 * `cancel_transfer` requires authorization from the sender (`from`) address specified in the transfer.
-

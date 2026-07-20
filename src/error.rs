@@ -37,4 +37,6 @@ pub enum Error {
     ExpiryTooFar = 14,
     /// The caller is not on the privileged callers allowlist.
     CallerNotAllowed = 16,
+    /// `accept_admin` was called but no pending admin transfer has been initiated.
+    NoPendingAdmin = 17,
 }

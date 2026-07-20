@@ -17,6 +17,10 @@ pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
 pub enum DataKey {
     /// Administrator address (instance storage).
     Admin,
+    /// Nominated successor awaiting acceptance (instance storage).
+    ///
+    /// Present only while a two-step admin transfer is in progress.
+    PendingAdmin,
     /// Token contract address used for transfers (instance storage).
     Token,
     /// Monotonic counter for issued transfer ids (instance storage).
@@ -49,6 +53,23 @@ pub fn get_admin(env: &Env) -> Option<Address> {
 /// Returns true if the administrator has already been configured.
 pub fn has_admin(env: &Env) -> bool {
     env.storage().instance().has(&DataKey::Admin)
+}
+
+/// Store the pending (nominee) admin address in instance storage.
+pub fn set_pending_admin(env: &Env, pending: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdmin, pending);
+}
+
+/// Read the pending (nominee) admin address from instance storage, if any.
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+/// Remove the pending admin entry from instance storage.
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 /// Store the token contract address in instance storage.

@@ -19,6 +19,32 @@ and emitted events. An empty batch succeeds and returns an empty result vector.
 Successful results preserve input order. `Create` returns `Created(id)`;
 `Claim` returns `Claimed`; and `Cancel` returns `Cancelled`.
 
+## Admin Management
+
+### `transfer_admin(new_admin: Address) -> Result<(), Error>`
+Initiates a two-step admin ownership transfer by nominating a successor.
+* **Authorization**: Current admin (`admin.require_auth()`)
+* **Effect**: Stores `new_admin` as the pending admin. The current admin retains
+  all privileges until `accept_admin` is called. A subsequent call replaces any
+  existing pending admin.
+* **Events**: Emits `admin_transfer_started` with `(current_admin, new_admin)`.
+* **Errors**: `NotInitialized` if the contract is not initialized.
+
+### `accept_admin() -> Result<(), Error>`
+Completes a two-step admin ownership transfer.
+* **Authorization**: Pending admin (`pending.require_auth()`)
+* **Effect**: Overwrites the admin slot with the pending admin address and clears
+  the pending-admin slot. The caller must be the exact address nominated by the
+  most recent `transfer_admin` call.
+* **Events**: Emits `admin_transfer_completed` with `(old_admin, new_admin)`.
+* **Errors**: `NoPendingAdmin` if no transfer has been initiated; `NotInitialized`
+  if the contract is not initialized.
+
+### `get_pending_admin() -> Option<Address>`
+Returns the currently nominated pending admin address.
+* **Authorization**: None (public view)
+* Returns `None` when no transfer is in progress.
+
 ## Privileged Callers Allowlist Management
 
 ### `add_caller(caller: Address) -> Result<(), Error>`

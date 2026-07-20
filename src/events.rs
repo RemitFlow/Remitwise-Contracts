@@ -48,3 +48,23 @@ pub fn caller_removed(env: &Env, caller: &Address) {
     let topics = (Symbol::new(env, "caller_removed"),);
     env.events().publish(topics, caller.clone());
 }
+
+/// Publish an event recording that the current admin has nominated a new admin.
+///
+/// Emitted by `transfer_admin`. The transfer is not yet complete; the nominee
+/// must call `accept_admin` to finalise it.
+pub fn admin_transfer_started(env: &Env, current_admin: &Address, pending_admin: &Address) {
+    let topics = (Symbol::new(env, "admin_transfer_started"),);
+    env.events()
+        .publish(topics, (current_admin.clone(), pending_admin.clone()));
+}
+
+/// Publish an event recording that the pending admin has accepted ownership.
+///
+/// Emitted by `accept_admin`. `old_admin` is the previous administrator and
+/// `new_admin` is the address that now holds the role.
+pub fn admin_transfer_completed(env: &Env, old_admin: &Address, new_admin: &Address) {
+    let topics = (Symbol::new(env, "admin_transfer_completed"),);
+    env.events()
+        .publish(topics, (old_admin.clone(), new_admin.clone()));
+}

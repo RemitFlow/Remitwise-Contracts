@@ -437,4 +437,43 @@ impl RemitFlowContract {
     pub fn is_caller_allowed(env: Env, caller: Address) -> bool {
         storage::is_caller_allowed(&env, &caller)
     }
+
+    /// Initiate a two-step admin ownership transfer by nominating a successor.
+    ///
+    /// Only the current administrator may call this. The nominee is stored as
+    /// the pending admin but the current admin retains all privileges until the
+    /// nominee calls [`accept_admin`]. Calling this a second time replaces any
+    /// previously nominated pending admin.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_pending_admin(&env, &new_admin);
+        storage::extend_instance(&env);
+        events::admin_transfer_started(&env, &admin, &new_admin);
+        Ok(())
+    }
+
+    /// Complete a two-step admin ownership transfer.
+    ///
+    /// Must be called by the address previously nominated via [`transfer_admin`].
+    /// On success the nominee becomes the new administrator and the pending-admin
+    /// slot is cleared. Returns [`Error::NoPendingAdmin`] if no transfer has
+    /// been initiated.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending = storage::get_pending_admin(&env).ok_or(Error::NoPendingAdmin)?;
+        pending.require_auth();
+        let old_admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        storage::set_admin(&env, &pending);
+        storage::clear_pending_admin(&env);
+        storage::extend_instance(&env);
+        events::admin_transfer_completed(&env, &old_admin, &pending);
+        Ok(())
+    }
+
+    /// Return the nominated pending admin address, if a transfer is in progress.
+    ///
+    /// Returns `None` when no two-step transfer has been initiated.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        storage::get_pending_admin(&env)
+    }
 }
