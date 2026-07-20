@@ -107,3 +107,18 @@ before the expiry timestamp; cancellations are only allowed strictly after it.
 ## License
 
 Licensed under the MIT License.
+
+## Storage Schema Versioning
+
+The contract uses a simple storage versioning strategy:
+
+- **Version key**: A STORAGE_VERSION: u32 key in instance storage tracks the current schema version
+- **Migration on upgrade**: When the contract WASM is upgraded, a migrate function reads the stored version and applies any needed storage transformations
+- **Backward compatibility**: New fields are appended to structs (not inserted) to maintain wire compatibility with existing stored data
+- **Version bump**: Increment on any storage layout change (new DataKey variant, new struct field, changed TTL constants)
+
+| Version | Change | Migration |
+|---------|--------|-----------|
+| 1 | Initial schema | None |
+| 2 | Added Transfer, Status types | None (additive) |
+| 3 | Added global escrow cap, caller allowlist | None (additive) |
