@@ -9,6 +9,7 @@ repository = ""
 readme = "README.md"
 
 [lib]
+doctest = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

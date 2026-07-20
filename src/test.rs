@@ -2,12 +2,14 @@
 
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{vec, Address, Env};
 
 use crate::test_utils::{
-    DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
+    TestFixture, DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
-use crate::types::Status;
+use crate::types::{
+    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
+};
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
 /// Test harness bundling the contract client, token, and key addresses.
@@ -19,13 +21,6 @@ struct Setup<'a> {
     from: Address,
     recipient: Address,
 }
-use soroban_sdk::{vec, Address, Env};
-
-use crate::test_utils::{TestFixture, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT};
-use crate::types::{
-    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
-};
-use crate::{RemitFlowContract, RemitFlowContractClient};
 
 impl Setup<'_> {
     fn token_client(&self) -> TokenClient<'_> {
@@ -564,7 +559,7 @@ fn test_add_caller_requires_admin_auth() {
     let admin = Address::generate(&env);
     let (token, _, _token_admin) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
 
@@ -583,7 +578,7 @@ fn test_pause_requires_admin_auth() {
     let admin = Address::generate(&env);
     let (token, _, token_admin) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
 
@@ -606,7 +601,7 @@ fn test_unpause_requires_admin_auth() {
     let admin = Address::generate(&env);
     let (token, _, _token_admin) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
     client.pause();
@@ -622,7 +617,7 @@ fn test_initialize_requires_admin_auth() {
     let admin = Address::generate(&env);
     let (token, _, _token_admin) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
 
     // Initialize without mocked auth - should fail because admin.require_auth() won't pass
@@ -731,7 +726,7 @@ fn test_admin_operations_require_initialization() {
     let admin = Address::generate(&env);
     let (token, _, _) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
 
     // Attempting admin operations before initialization should fail
@@ -963,7 +958,7 @@ fn test_transfer_admin_requires_admin_auth() {
     let admin = Address::generate(&env);
     let (token, _, _) = create_token(&env, &admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&admin, &token);
 
@@ -999,7 +994,7 @@ fn test_old_admin_cannot_exercise_admin_rights_after_transfer() {
 
     let (token, _, _) = create_token(&env, &old_admin);
 
-    let contract_id = env.register(RemitFlowContract, ());
+    let contract_id = env.register_contract(None, RemitFlowContract);
     let client = RemitFlowContractClient::new(&env, &contract_id);
     client.initialize(&old_admin, &token);
 

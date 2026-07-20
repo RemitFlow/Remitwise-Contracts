@@ -33,17 +33,17 @@ pub enum InstanceKey {
     ///
     /// Present only while a two-step admin transfer is in progress.
     PendingAdmin,
-    /// Token contract address used for transfers (instance storage).
-    /// Nominated successor awaiting acceptance (two-step transfer in progress).
-    ///
-    /// Present only while a two-step ownership transfer is in progress.
-    PendingAdmin,
     /// Token contract address used for escrow transfers.
     Token,
     /// Monotonic counter for issued transfer ids.
     Counter,
     /// Paused flag gating new transfer creation.
     Paused,
+    /// Running total of all currently pending escrowed amounts.
+    ///
+    /// Maintained incrementally on create/claim/cancel so that creating a
+    /// transfer stays O(1) instead of rescanning every stored transfer.
+    TotalEscrowed,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -109,23 +109,6 @@ pub fn clear_pending_admin(env: &Env) {
     env.storage().instance().remove(&InstanceKey::PendingAdmin);
 }
 
-/// Store the pending (nominee) admin address in instance storage.
-pub fn set_pending_admin(env: &Env, pending: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PendingAdmin, pending);
-}
-
-/// Read the pending (nominee) admin address from instance storage, if any.
-pub fn get_pending_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::PendingAdmin)
-}
-
-/// Remove the pending admin entry from instance storage.
-pub fn clear_pending_admin(env: &Env) {
-    env.storage().instance().remove(&DataKey::PendingAdmin);
-}
-
 /// Store the token contract address in instance storage.
 pub fn set_token(env: &Env, token: &Address) {
     env.storage().instance().set(&InstanceKey::Token, token);
@@ -162,6 +145,21 @@ pub fn set_paused(env: &Env, value: bool) {
     env.storage().instance().set(&InstanceKey::Paused, &value);
 }
 
+/// Read the running total of pending escrowed amounts (0 when unset).
+pub fn get_total_escrowed(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::TotalEscrowed)
+        .unwrap_or(0)
+}
+
+/// Persist the running total of pending escrowed amounts.
+pub fn set_total_escrowed(env: &Env, value: i128) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::TotalEscrowed, &value);
+}
+
 // ---------------------------------------------------------------------------
 // Persistent storage helpers
 // ---------------------------------------------------------------------------
@@ -182,9 +180,7 @@ pub fn get_transfer(env: &Env, id: u64) -> Option<Transfer> {
 
 /// Returns true if a transfer with the given id exists.
 pub fn has_transfer(env: &Env, id: u64) -> bool {
-    env.storage()
-        .persistent()
-        .has(&PersistentKey::Transfer(id))
+    env.storage().persistent().has(&PersistentKey::Transfer(id))
 }
 
 /// Store a caller's allowlist status in persistent storage.

@@ -5,6 +5,11 @@
 //! Senders lock token funds for a recipient with an expiry. The recipient can
 //! claim the funds; the sender can cancel and reclaim them after expiry.
 
+// soroban `#[contracttype]` generates Arbitrary impls under `testutils`,
+// which need `std`. Link it for test builds only; wasm builds stay no_std.
+#[cfg(test)]
+extern crate std;
+
 mod error;
 mod events;
 pub mod math;
@@ -181,12 +186,7 @@ impl RemitFlowContract {
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
-        let total_escrowed = Self::total_escrowed(env.clone());
-        if total_escrowed
-            .checked_add(amount)
-            .map(|total| total > MAX_TOTAL_ESCROWED)
-            .unwrap_or(true)
-        {
+        let total_escrowed = storage::get_total_escrowed(&env);
         let updated_total =
             math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
         if updated_total > MAX_TOTAL_ESCROWED {
@@ -219,6 +219,7 @@ impl RemitFlowContract {
         };
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
+        storage::set_total_escrowed(&env, updated_total);
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
@@ -249,6 +250,10 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Claimed;
+        storage::set_total_escrowed(
+            &env,
+            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+        );
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -281,6 +286,10 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Cancelled;
+        storage::set_total_escrowed(
+            &env,
+            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+        );
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
