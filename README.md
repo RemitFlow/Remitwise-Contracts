@@ -107,3 +107,12 @@ before the expiry timestamp; cancellations are only allowed strictly after it.
 ## License
 
 Licensed under the MIT License.
+
+## Multisig-Compatible Administration
+
+The contract currently uses a single admin address. For production deployments requiring multisig security:
+
+- The admin key can be a Stellar multisig account (e.g., 2-of-3 threshold)
+- Multisig transactions require all signers to authorize via Stellar's native multisig
+- No contract changes needed - Soroban respects Stellar account thresholds natively
+- Future contract versions may add on-chain admin set management
