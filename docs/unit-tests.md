@@ -43,6 +43,14 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_is_expired_reflects_ledger_time**: Verifies expiry status matches ledger time
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
 
+### Reusable Math Module Tests
+- Checked amount addition and subtraction at normal and overflow boundaries
+- Checked counter increments through `u64::MAX`
+- Saturating amount and capped-counter behavior
+- Basis-point fees at zero, common rates, 100%, rounding boundaries, and
+  `i128::MAX`
+- Rejection of negative amounts and rates above 10,000 basis points
+
 ### Pause/Unpause Tests
 - **test_pause_blocks_create_transfer**: Verifies pause prevents new transfer creation
 - **test_pause_by_admin_succeeds**: Validates admin can pause the contract

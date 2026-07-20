@@ -30,4 +30,18 @@ doc:
 clean:
 	cargo clean
 
-.PHONY: default build optimize test coverage coverage-lcov fmt fmt-check lint doc clean
+# Deploy and initialize the contract on a Stellar network.
+# Required variables: SOURCE, ADMIN, TOKEN
+# Optional: NETWORK (default: testnet), WASM, SKIP_BUILD
+# Example:
+#   make deploy NETWORK=testnet SOURCE=my-key ADMIN=G... TOKEN=C...
+deploy:
+	./scripts/deploy-and-initialize.sh \
+		--network $(or $(NETWORK),testnet) \
+		--source $(SOURCE) \
+		--admin $(ADMIN) \
+		--token $(TOKEN) \
+		$(if $(WASM),--wasm $(WASM),) \
+		$(if $(SKIP_BUILD),--skip-build,)
+
+.PHONY: default build optimize test coverage coverage-lcov fmt fmt-check lint doc clean deploy
