@@ -50,6 +50,8 @@ pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 /// Global cap on the total escrowed amount.
 ///
 /// Prevents the contract from accumulating an unbounded escrow balance.
+pub const MAX_ACCOUNT_OPS: u32 = 100;
+
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
 /// The RemitFlow remittance escrow contract.
@@ -137,6 +139,9 @@ impl RemitFlowContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        if storage::get_account_op_count(&env, &from) >= MAX_ACCOUNT_OPS {
+            return Err(Error::AccountLimitReached);
+        }
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
@@ -177,6 +182,7 @@ impl RemitFlowContract {
         };
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
+        storage::increment_account_op_count(&env, &from);
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)

@@ -124,6 +124,15 @@ pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
 }
 
 /// Check if a caller is allowed from persistent storage.
+pub fn get_account_op_count(env: &Env, account: &Address) -> u32 {
+    env.storage().instance().get(&DataKey::AccountOpCount(account.clone())).unwrap_or(0)
+}
+
+pub fn increment_account_op_count(env: &Env, account: &Address) {
+    let count: u32 = get_account_op_count(env, account);
+    env.storage().instance().set(&DataKey::AccountOpCount(account.clone()), &(count.saturating_add(1)));
+}
+
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = DataKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
