@@ -176,11 +176,6 @@ impl RemitFlowContract {
         let updated_total =
             math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
         if updated_total > MAX_TOTAL_ESCROWED {
-        if total_escrowed
-            .checked_add(amount)
-            .map(|total| total > MAX_TOTAL_ESCROWED)
-            .unwrap_or(true)
-        {
             return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();
