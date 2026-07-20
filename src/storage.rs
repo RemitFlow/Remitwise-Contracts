@@ -124,6 +124,28 @@ pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
 }
 
 /// Check if a caller is allowed from persistent storage.
+/// Store a pending admin action with its target state.
+pub fn set_pending_action(env: &Env, action: &Symbol, effective_at: u64) {
+    env.storage().instance().set(&DataKey::PendingAction, action);
+    env.storage().instance().set(&DataKey::ActionEffectiveAt, &effective_at);
+}
+
+/// Clear the pending admin action.
+pub fn clear_pending_action(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAction);
+    env.storage().instance().remove(&DataKey::ActionEffectiveAt);
+}
+
+/// Get the pending action and its effective ledger, if any.
+pub fn get_pending_action(env: &Env) -> Option<(Symbol, u64)> {
+    let action: Option<Symbol> = env.storage().instance().get(&DataKey::PendingAction);
+    let effective: Option<u64> = env.storage().instance().get(&DataKey::ActionEffectiveAt);
+    match (action, effective) {
+        (Some(a), Some(e)) => Some((a, e)),
+        _ => None,
+    }
+}
+
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = DataKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
