@@ -7,6 +7,7 @@
 
 mod error;
 mod events;
+pub mod math;
 mod storage;
 mod types;
 
@@ -17,16 +18,8 @@ mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
-fn saturating_increment_u64(value: u64) -> u64 {
-    value.saturating_add(1)
-}
-
-fn saturating_add_with_cap(value: u64, delta: u64, cap: u64) -> u64 {
-    value.saturating_add(delta).min(cap)
-}
-
 use crate::error::Error;
-use crate::types::{Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -52,12 +45,51 @@ pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 /// Prevents the contract from accumulating an unbounded escrow balance.
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
+/// Maximum number of records returned by a paginated transfer query.
+pub const MAX_PAGE_SIZE: u32 = 100;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
 
 #[contractimpl]
 impl RemitFlowContract {
+    /// Execute several transfer operations atomically in one contract call.
+    ///
+    /// Operations run in order. If any operation fails, the error is returned
+    /// and Soroban rolls back every token movement, storage write, and event
+    /// produced earlier in the batch.
+    pub fn batch_operations(
+        env: Env,
+        operations: Vec<BatchOperation>,
+    ) -> Result<Vec<BatchOperationResult>, Error> {
+        let mut results = Vec::new(&env);
+        for operation in operations.iter() {
+            let result = match operation {
+                BatchOperation::Create(params) => {
+                    let id = Self::create_transfer(
+                        env.clone(),
+                        params.from,
+                        params.recipient,
+                        params.amount,
+                        params.expiry,
+                    )?;
+                    BatchOperationResult::Created(id)
+                },
+                BatchOperation::Claim(params) => {
+                    Self::claim_transfer(env.clone(), params.id, params.recipient)?;
+                    BatchOperationResult::Claimed
+                },
+                BatchOperation::Cancel(params) => {
+                    Self::cancel_transfer(env.clone(), params.id, params.from)?;
+                    BatchOperationResult::Cancelled
+                },
+            };
+            results.push_back(result);
+        }
+        Ok(results)
+    }
+
     /// Initialize the contract with an administrator and token address.
     ///
     /// Can only be called once; subsequent calls return
@@ -141,8 +173,15 @@ impl RemitFlowContract {
             return Err(Error::AmountTooLarge);
         }
         let total_escrowed = Self::total_escrowed(env.clone());
-        if total_escrowed + amount > MAX_TOTAL_ESCROWED {
-            return Err(Error::AmountTooLarge);
+        let updated_total =
+            math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
+        if updated_total > MAX_TOTAL_ESCROWED {
+        if total_escrowed
+            .checked_add(amount)
+            .map(|total| total > MAX_TOTAL_ESCROWED)
+            .unwrap_or(true)
+        {
+            return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();
         if expiry <= now {
@@ -156,16 +195,10 @@ impl RemitFlowContract {
         }
         from.require_auth();
 
-        let id = saturating_increment_u64(storage::get_counter(&env));
-        if id == u64::MAX {
-            return Err(Error::CounterOverflow);
-        }
+        let id =
+            math::checked_increment(storage::get_counter(&env)).ok_or(Error::CounterOverflow)?;
 
-        token::Client::new(&env, &token).transfer(
-            &from,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
         let transfer = Transfer {
             id,
@@ -270,18 +303,23 @@ impl RemitFlowContract {
 
     /// Return a page of transfer records starting at `start_id`.
     ///
-    /// Collects up to `limit` existing transfers with ids in
-    /// `start_id..=counter`, skipping any gaps. A `limit` of zero yields an
-    /// empty page.
+    /// Collects up to `min(limit, MAX_PAGE_SIZE)` existing transfers with ids
+    /// in `start_id..=counter`, skipping any gaps. `start_id` is inclusive and
+    /// values below one are treated as one. A `limit` of zero, an empty
+    /// contract, or a start id beyond the counter yields an empty page.
     pub fn get_transfers_paged(env: Env, start_id: u64, limit: u32) -> Vec<Transfer> {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
         let mut id = start_id.max(1);
-        while id <= last && page.len() < limit {
+        let page_size = limit.min(MAX_PAGE_SIZE);
+        while id <= last && page.len() < page_size {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 page.push_back(transfer);
             }
-            id += 1;
+            match id.checked_add(1) {
+                Some(next_id) => id = next_id,
+                None => break,
+            }
         }
         page
     }
@@ -297,7 +335,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.status == Status::Pending {
-                    total = total.saturating_add(transfer.amount);
+                    total = math::saturating_add_amount(total, transfer.amount);
                 }
             }
             id += 1;
@@ -325,7 +363,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.from == from {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -344,7 +382,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.recipient == recipient {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -363,7 +401,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.status == status {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;

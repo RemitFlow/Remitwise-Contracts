@@ -13,6 +13,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | --- | --- |
 | `initialize(admin, token)` | Configure the admin and token; callable once. |
 | `create_transfer(from, recipient, amount, expiry) -> u64` | Lock funds in escrow and return the transfer id. Caller `from` must be allowlisted. |
+| `batch_operations(operations) -> Vec<BatchOperationResult>` | Atomically execute an ordered batch of create, claim, and cancel operations. |
 | `claim_transfer(id, recipient)` | Recipient claims a pending, unexpired transfer. |
 | `cancel_transfer(id, from)` | Sender reclaims a pending transfer after expiry. |
 | `pause()` | Admin pauses creation of new transfers. |
@@ -21,7 +22,7 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `remove_caller(caller)` | Remove a caller from the allowlist of privileged callers (admin-only). |
 | `is_caller_allowed(caller) -> bool` | Check whether a caller is on the privileged callers allowlist. |
 | `get_transfer(id) -> Transfer` | Read a stored transfer record. |
-| `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read a batch of transfers. |
+| `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read up to 100 transfers beginning at the inclusive transfer id. |
 | `get_status(id) -> Status` | Read just a transfer's lifecycle status. |
 | `is_expired(id) -> bool` | Check whether a transfer has passed its expiry. |
 | `is_paused() -> bool` | Report whether the contract is paused. |
@@ -34,91 +35,12 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `get_token() -> Address` | Return the configured token. |
 | `counter() -> u64` | Return the number of transfers created. |
 
+### Paginating transfers
 
-## Build
+Call `get_transfers_paged(start_id, limit)` to read records without loading the
+entire transfer history. Transfer ids begin at `1`, and `start_id` is
+inclusive, so the next page begins at one more than the final id returned:
 
-Build the optimized WASM with the pinned toolchain:
-
-```sh
-make build
-# or directly:
-cargo build --target wasm32-unknown-unknown --release
-```
-
-Run the test suite:
-
-```sh
-make test
-# or directly:
-cargo test
-```
-
-Generate an HTML coverage report:
-
-```sh
-cargo install cargo-llvm-cov --locked
-make coverage
-```
-
-Open `target/llvm-cov/html/index.html` in a browser to inspect the report. See
-the [testing guide](docs/testing-guide.md#coverage) for LCOV output and CI
-details.
-
-The compiled artifact is written to
-`target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
-
-## Deploy
-
-Deploy the WASM and initialize it using the Stellar CLI:
-
-```sh
-stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/remitflow_contract.wasm \
-  --source deployer \
-  --network testnet
-
-stellar contract invoke \
-  --id <CONTRACT_ID> \
-  --source deployer \
-  --network testnet \
-  -- initialize \
-  --admin <ADMIN_ADDRESS> \
-  --token <TOKEN_ADDRESS>
-```
-
-## Aggregate behaviour
-
-Aggregate helpers now use saturating fallbacks so counters and tallies avoid overflowing in extreme cases. This keeps transfer counts and escrow totals bounded even when many transfers are recorded.
-## Global escrow cap
-
-The contract now enforces a global cap on the total escrowed amount so the system does not accumulate an unbounded balance. Creating a transfer that would exceed this cap returns an explicit error.
-
-## Transfer lifecycle
-
-Each transfer moves through the following states:
-
-- `Pending` — created and funded, awaiting action.
-- `Claimed` — recipient withdrew the funds before expiry (terminal).
-- `Cancelled` — sender reclaimed the funds after expiry (terminal).
-
-Only `Pending` transfers can be claimed or cancelled. Claims must happen on or
-before the expiry timestamp; cancellations are only allowed strictly after it.
-
-## License
-
-Licensed under the MIT License.
-
-## Storage Schema Versioning
-
-The contract uses a simple storage versioning strategy:
-
-- **Version key**: A STORAGE_VERSION: u32 key in instance storage tracks the current schema version
-- **Migration on upgrade**: When the contract WASM is upgraded, a migrate function reads the stored version and applies any needed storage transformations
-- **Backward compatibility**: New fields are appended to structs (not inserted) to maintain wire compatibility with existing stored data
-- **Version bump**: Increment on any storage layout change (new DataKey variant, new struct field, changed TTL constants)
-
-| Version | Change | Migration |
-|---------|--------|-----------|
-| 1 | Initial schema | None |
-| 2 | Added Transfer, Status types | None (additive) |
-| 3 | Added global escrow cap, caller allowlist | None (additive) |
+```text
+get_transfers_paged(1, 25)
+get_transfers_paged(26, 25)

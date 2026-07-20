@@ -39,6 +39,7 @@ impl<'a> TestFixture<'a> {
         let contract_id = env.register(RemitFlowContract, ());
         let client = RemitFlowContractClient::new(&env, &contract_id);
         client.initialize(&admin, &token);
+        client.add_caller(&from);
 
         Self {
             env,

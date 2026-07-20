@@ -1338,14 +1338,13 @@ dependencies = [
 
 [[package]]
 name = "soroban-sdk"
-version = "21.7.7"
+version = "21.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcdf04484af7cc731a7a48ad1d9f5f940370edeea84734434ceaf398a6b862e"
+checksum = "25c539fecb2862ce0c1f49880134660a855e2d35889692e01d1e8d8a1e53f98e"
 dependencies = [
  "arbitrary",
  "bytes-lit",
  "ctor",
- "derive_arbitrary",
  "ed25519-dalek 2.2.0",
  "rand",
  "rustc_version",

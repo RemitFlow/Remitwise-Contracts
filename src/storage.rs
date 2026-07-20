@@ -63,10 +63,7 @@ pub fn get_token(env: &Env) -> Option<Address> {
 
 /// Read the current transfer counter, defaulting to zero when unset.
 pub fn get_counter(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Counter)
-        .unwrap_or(0)
+    env.storage().instance().get(&DataKey::Counter).unwrap_or(0)
 }
 
 /// Persist a new value for the transfer counter.
@@ -91,11 +88,9 @@ pub fn set_paused(env: &Env, value: bool) {
 pub fn set_transfer(env: &Env, transfer: &Transfer) {
     let key = DataKey::Transfer(transfer.id);
     env.storage().persistent().set(&key, transfer);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_BUMP_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
 /// Read a transfer record from persistent storage by id, if present.
@@ -128,4 +123,3 @@ pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = DataKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
 }
-
