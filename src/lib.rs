@@ -173,9 +173,6 @@ impl RemitFlowContract {
             return Err(Error::AmountTooLarge);
         }
         let total_escrowed = Self::total_escrowed(env.clone());
-        let updated_total =
-            math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
-        if updated_total > MAX_TOTAL_ESCROWED {
         if total_escrowed
             .checked_add(amount)
             .map(|total| total > MAX_TOTAL_ESCROWED)

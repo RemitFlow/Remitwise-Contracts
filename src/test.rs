@@ -1017,3 +1017,111 @@ fn test_transfer_admin_overrides_previous_pending() {
     assert_eq!(s.client.get_admin(), second_nominee);
     assert!(s.client.get_pending_admin().is_none());
 }
+
+// --- Storage-key collision safety tests ---
+
+#[test]
+fn test_instance_key_variants_are_distinct() {
+    // Verify that the five InstanceKey variants used by the contract are all
+    // distinct Rust values (equality-based). Because Soroban serialises each
+    // variant by name string, distinct Rust variants produce distinct on-chain
+    // keys with no possibility of collision.
+    use crate::storage::InstanceKey;
+    assert_ne!(InstanceKey::Admin, InstanceKey::PendingAdmin);
+    assert_ne!(InstanceKey::Admin, InstanceKey::Token);
+    assert_ne!(InstanceKey::Admin, InstanceKey::Counter);
+    assert_ne!(InstanceKey::Admin, InstanceKey::Paused);
+    assert_ne!(InstanceKey::PendingAdmin, InstanceKey::Token);
+    assert_ne!(InstanceKey::PendingAdmin, InstanceKey::Counter);
+    assert_ne!(InstanceKey::PendingAdmin, InstanceKey::Paused);
+    assert_ne!(InstanceKey::Token, InstanceKey::Counter);
+    assert_ne!(InstanceKey::Token, InstanceKey::Paused);
+    assert_ne!(InstanceKey::Counter, InstanceKey::Paused);
+}
+
+#[test]
+fn test_persistent_transfer_keys_are_unique_per_id() {
+    // Two Transfer records with different ids must be stored and retrieved
+    // independently. This verifies that PersistentKey::Transfer(id) produces
+    // a distinct on-chain key per id value.
+    let s = setup();
+    let expiry = s.future_expiry();
+
+    let id1 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let id2 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+
+    assert_ne!(id1, id2);
+    let t1 = s.client.get_transfer(&id1);
+    let t2 = s.client.get_transfer(&id2);
+    assert_eq!(t1.amount, 100);
+    assert_eq!(t2.amount, 200);
+    // Mutating one record does not affect the other
+    s.client.claim_transfer(&id1, &s.recipient);
+    assert_eq!(s.client.get_status(&id1), crate::types::Status::Claimed);
+    assert_eq!(s.client.get_status(&id2), crate::types::Status::Pending);
+}
+
+#[test]
+fn test_persistent_allowedcaller_keys_are_unique_per_address() {
+    // Two distinct addresses must have independent allowlist entries.
+    // This verifies that PersistentKey::AllowedCaller(addr) produces a
+    // distinct on-chain key for each address.
+    let s = setup();
+    let addr_a = Address::generate(&s.env);
+    let addr_b = Address::generate(&s.env);
+
+    // Neither is allowed initially
+    assert!(!s.client.is_caller_allowed(&addr_a));
+    assert!(!s.client.is_caller_allowed(&addr_b));
+
+    // Allow addr_a only
+    s.client.add_caller(&addr_a);
+    assert!(s.client.is_caller_allowed(&addr_a));
+    assert!(!s.client.is_caller_allowed(&addr_b));
+
+    // Allow addr_b; addr_a remains allowed
+    s.client.add_caller(&addr_b);
+    assert!(s.client.is_caller_allowed(&addr_a));
+    assert!(s.client.is_caller_allowed(&addr_b));
+
+    // Remove addr_a; addr_b must remain allowed
+    s.client.remove_caller(&addr_a);
+    assert!(!s.client.is_caller_allowed(&addr_a));
+    assert!(s.client.is_caller_allowed(&addr_b));
+}
+
+#[test]
+fn test_allowedcaller_and_transfer_keys_do_not_collide() {
+    // PersistentKey::AllowedCaller and PersistentKey::Transfer are distinct
+    // key namespaces. Writing an allowlist entry must never affect a transfer
+    // record and vice-versa. This test exercises both in the same environment
+    // and confirms that each is read back correctly after the other is written.
+    let s = setup();
+    let expiry = s.future_expiry();
+
+    // Create a transfer (id = 1)
+    let id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &300, &expiry);
+    assert_eq!(id, 1);
+
+    // Add a fresh caller to the allowlist
+    let extra_caller = Address::generate(&s.env);
+    s.client.add_caller(&extra_caller);
+
+    // Transfer record is unchanged
+    let transfer = s.client.get_transfer(&id);
+    assert_eq!(transfer.amount, 300);
+    assert_eq!(transfer.status, crate::types::Status::Pending);
+
+    // Allowlist entry is present
+    assert!(s.client.is_caller_allowed(&extra_caller));
+
+    // Claiming the transfer does not disturb the allowlist
+    s.client.claim_transfer(&id, &s.recipient);
+    assert!(s.client.is_caller_allowed(&extra_caller));
+}
