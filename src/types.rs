@@ -1,5 +1,49 @@
 use soroban_sdk::{contracttype, Address};
 
+/// Parameters for creating a transfer as part of a batch.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateTransferOperation {
+    pub from: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub expiry: u64,
+}
+
+/// Parameters for claiming a transfer as part of a batch.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClaimTransferOperation {
+    pub id: u64,
+    pub recipient: Address,
+}
+
+/// Parameters for cancelling a transfer as part of a batch.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CancelTransferOperation {
+    pub id: u64,
+    pub from: Address,
+}
+
+/// A state-changing operation accepted by the batch entrypoint.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BatchOperation {
+    Create(CreateTransferOperation),
+    Claim(ClaimTransferOperation),
+    Cancel(CancelTransferOperation),
+}
+
+/// Result produced for each successfully executed batch operation.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BatchOperationResult {
+    Created(u64),
+    Claimed,
+    Cancelled,
+}
+
 /// Lifecycle status of a remittance transfer held in escrow.
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
