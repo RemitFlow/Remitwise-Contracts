@@ -107,3 +107,9 @@ before the expiry timestamp; cancellations are only allowed strictly after it.
 ## License
 
 Licensed under the MIT License.
+
+## Minimum Supported SDK Version
+
+- Soroban SDK: 21.7.6 (pinned in Cargo.toml)
+- Rust toolchain: 1.81.0 (stable)
+- WASM target: wasm32-unknown-unknown
