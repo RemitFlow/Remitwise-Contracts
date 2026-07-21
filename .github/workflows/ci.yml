@@ -32,5 +32,9 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - run: cargo build --release --target wasm32-unknown-unknown
+      - name: Enforce WASM size budget
+        run: ./scripts/check-wasm-size.sh
+      - name: Test WASM size checker
+        run: ./scripts/test-check-wasm-size.sh
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings
