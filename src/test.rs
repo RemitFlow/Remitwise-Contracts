@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::testutils::{Address as _, Ledger, Events};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
-use soroban_sdk::{vec, Address, Env};
+use soroban_sdk::{vec, Address, Env, IntoVal};
 
 use crate::test_utils::{
     TestFixture, DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
@@ -1137,3 +1137,242 @@ fn test_allowedcaller_and_transfer_keys_do_not_collide() {
     s.client.claim_transfer(&id, &s.recipient);
     assert!(s.client.is_caller_allowed(&extra_caller));
 }
+
+#[test]
+fn test_event_payload_contents() {
+    let s = setup();
+
+    let client_addr = s.client.address.clone();
+
+    // 1. Initial actions in setup():
+    // client.initialize(&admin, &token) -> emits "init"
+    // client.add_caller(&from) -> emits "caller_added"
+
+    // 2. Perform caller removal and re-addition
+    s.client.remove_caller(&s.from); // emits "caller_removed"
+    s.client.add_caller(&s.from);    // emits "caller_added"
+
+    // 3. Perform pause and unpause
+    s.client.pause();   // emits "paused"
+    s.client.unpause(); // emits "unpaused"
+
+    // 4. Create and claim a transfer
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id1 = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry); // emits "created"
+    s.client.claim_transfer(&id1, &s.recipient); // emits "claimed"
+
+    // 5. Create and cancel a transfer
+    let id2 = s.client.create_transfer(&s.from, &s.recipient, &200, &expiry); // emits "created"
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    s.client.cancel_transfer(&id2, &s.from); // emits "cancelled"
+
+    // 6. Admin transfer
+    let new_admin = Address::generate(&s.env);
+    s.client.transfer_admin(&new_admin); // emits "admin_transfer_started"
+    s.client.accept_admin(); // emits "admin_transfer_completed"
+
+    // Now retrieve all events
+    let events = s.env.events().all();
+
+    // Filter events emitted by our contract
+    let contract_events: std::vec::Vec<_> = events
+        .iter()
+        .filter(|e| e.0 == client_addr)
+        .collect();
+
+    // Total expected events: 12
+    assert_eq!(contract_events.len(), 12);
+
+    // Event 0: init
+    {
+        let event = &contract_events[0];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "init"));
+        assert_eq!(topics.len(), 1);
+
+        let (admin, token): (Address, Address) = data.clone().into_val(&s.env);
+        assert_eq!(admin, s.admin);
+        assert_eq!(token, s.token);
+    }
+
+    // Event 1: caller_added
+    {
+        let event = &contract_events[1];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "caller_added"));
+        assert_eq!(topics.len(), 1);
+
+        let caller: Address = data.clone().into_val(&s.env);
+        assert_eq!(caller, s.from);
+    }
+
+    // Event 2: caller_removed
+    {
+        let event = &contract_events[2];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "caller_removed"));
+        assert_eq!(topics.len(), 1);
+
+        let caller: Address = data.clone().into_val(&s.env);
+        assert_eq!(caller, s.from);
+    }
+
+    // Event 3: caller_added
+    {
+        let event = &contract_events[3];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "caller_added"));
+        assert_eq!(topics.len(), 1);
+
+        let caller: Address = data.clone().into_val(&s.env);
+        assert_eq!(caller, s.from);
+    }
+
+    // Event 4: paused
+    {
+        let event = &contract_events[4];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "paused"));
+        assert_eq!(topics.len(), 1);
+
+        let admin: Address = data.clone().into_val(&s.env);
+        assert_eq!(admin, s.admin);
+    }
+
+    // Event 5: unpaused
+    {
+        let event = &contract_events[5];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "unpaused"));
+        assert_eq!(topics.len(), 1);
+
+        let admin: Address = data.clone().into_val(&s.env);
+        assert_eq!(admin, s.admin);
+    }
+
+    // Event 6: created (id1)
+    {
+        let event = &contract_events[6];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "created"));
+
+        let id: u64 = topics.get(1).unwrap().into_val(&s.env);
+        assert_eq!(id, id1);
+        assert_eq!(topics.len(), 2);
+
+        let (from, recipient, amount, exp): (Address, Address, i128, u64) = data.clone().into_val(&s.env);
+        assert_eq!(from, s.from);
+        assert_eq!(recipient, s.recipient);
+        assert_eq!(amount, 100);
+        assert_eq!(exp, expiry);
+    }
+
+    // Event 7: claimed
+    {
+        let event = &contract_events[7];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "claimed"));
+
+        let id: u64 = topics.get(1).unwrap().into_val(&s.env);
+        assert_eq!(id, id1);
+        assert_eq!(topics.len(), 2);
+
+        let (recipient, amount): (Address, i128) = data.clone().into_val(&s.env);
+        assert_eq!(recipient, s.recipient);
+        assert_eq!(amount, 100);
+    }
+
+    // Event 8: created (id2)
+    {
+        let event = &contract_events[8];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "created"));
+
+        let id: u64 = topics.get(1).unwrap().into_val(&s.env);
+        assert_eq!(id, id2);
+        assert_eq!(topics.len(), 2);
+
+        let (from, recipient, amount, exp): (Address, Address, i128, u64) = data.clone().into_val(&s.env);
+        assert_eq!(from, s.from);
+        assert_eq!(recipient, s.recipient);
+        assert_eq!(amount, 200);
+        assert_eq!(exp, expiry);
+    }
+
+    // Event 9: cancelled
+    {
+        let event = &contract_events[9];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "cancelled"));
+
+        let id: u64 = topics.get(1).unwrap().into_val(&s.env);
+        assert_eq!(id, id2);
+        assert_eq!(topics.len(), 2);
+
+        let (from, amount): (Address, i128) = data.clone().into_val(&s.env);
+        assert_eq!(from, s.from);
+        assert_eq!(amount, 200);
+    }
+
+    // Event 10: admin_transfer_started
+    {
+        let event = &contract_events[10];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "admin_transfer_started"));
+        assert_eq!(topics.len(), 1);
+
+        let (current_admin, pending_admin): (Address, Address) = data.clone().into_val(&s.env);
+        assert_eq!(current_admin, s.admin);
+        assert_eq!(pending_admin, new_admin);
+    }
+
+    // Event 11: admin_transfer_completed
+    {
+        let event = &contract_events[11];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "admin_transfer_completed"));
+        assert_eq!(topics.len(), 1);
+
+        let (old_admin, newest_admin): (Address, Address) = data.clone().into_val(&s.env);
+        assert_eq!(old_admin, s.admin);
+        assert_eq!(newest_admin, new_admin);
+    }
+}
+
+
