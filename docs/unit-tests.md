@@ -43,6 +43,10 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_is_expired_reflects_ledger_time**: Verifies expiry status matches ledger time
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
 
+### Event Validation Tests
+- **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 10 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, and `admin_transfer_completed`).
+
+
 ### Reusable Math Module Tests
 - Checked amount addition and subtraction at normal and overflow boundaries
 - Checked counter increments through `u64::MAX`
