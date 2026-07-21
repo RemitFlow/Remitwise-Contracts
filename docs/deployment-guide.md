@@ -133,7 +133,7 @@ stellar contract invoke \
   --caller <CALLER_ADDRESS>
 ```
 
----
+|---|
 
 ## Post-Deploy Verification
 
@@ -144,7 +144,10 @@ your local build:
 ./scripts/verify-wasm-hash.sh testnet <CONTRACT_ID>
 ```
 
----
+For a full walkthrough of the deterministic build settings, prerequisites, and
+troubleshooting steps, see the [Reproducible Builds guide](reproducible-build.md).
+
+|---|
 
 ## Mainnet Deployment
 

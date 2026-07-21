@@ -67,6 +67,10 @@ make build
 cargo build --target wasm32-unknown-unknown --release
 ```
 
+For a detailed explanation of what makes the build deterministic and how to
+verify that two builds produce the same artifact, see the
+[Reproducible Builds guide](docs/reproducible-build.md).
+
 Run the test suite:
 
 ```sh
