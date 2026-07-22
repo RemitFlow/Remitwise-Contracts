@@ -11,6 +11,14 @@ Deploying a Soroban contract requires the deployer account to hold sufficient XL
 Recommended minimum deployer balance: 20 XLM
 
 Testnet tokens available from Stellar Friendbot at https://friendbot.stellar.org
+## Multisig-Compatible Administration
+
+The contract currently uses a single admin address. For production deployments requiring multisig security:
+
+- The admin key can be a Stellar multisig account (e.g., 2-of-3 threshold)
+- Multisig transactions require all signers to authorize via Stellar's native multisig
+- No contract changes needed - Soroban respects Stellar account thresholds natively
+- Future contract versions may add on-chain admin set management
 
 ## Resource Costs
 
