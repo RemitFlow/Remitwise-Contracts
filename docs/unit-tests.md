@@ -45,6 +45,7 @@ The contract includes comprehensive unit tests organized by functionality:
 
 ### Event Validation Tests
 - **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 10 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, and `admin_transfer_completed`).
+- **test_event_topics_stability**: Asserts that all event topic symbols and topic counts remain stable across contract invocations.
 
 
 ### Reusable Math Module Tests

@@ -17,5 +17,5 @@ This document describes all events emitted by the RemitFlow smart contract, deta
 | `admin_transfer_started` | `("admin_transfer_started",)` | `(current_admin: Address, pending_admin: Address)` | Admin initiates ownership transfer. |
 | `admin_transfer_completed` | `("admin_transfer_completed",)` | `(old_admin: Address, new_admin: Address)` | Pending admin accepts ownership transfer. |
 
-## Event Payload Verification
-All events emitted by the contract are tested for topic alignment and payload structural integrity inside the automated test suite under the `test_event_payload_contents` unit test case.
+## Event Payload & Topic Stability Verification
+All events emitted by the contract are tested for topic alignment, payload structural integrity, and topic symbol stability inside the automated test suite under the `test_event_payload_contents` and `test_event_topics_stability` unit test cases.
