@@ -27,6 +27,9 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Create output directory
+        run: mkdir -p target/llvm-cov
+
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path target/llvm-cov/lcov.info
 
