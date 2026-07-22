@@ -64,6 +64,8 @@ pub enum PersistentKey {
     Transfer(u64),
     /// Allowlist membership flag for a privileged caller address.
     AllowedCaller(Address),
+    /// Per-account operation counter, keyed by account address.
+    AccountOpCount(Address),
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +201,21 @@ pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
 }
 
 /// Check if a caller is allowed from persistent storage.
+pub fn get_account_op_count(env: &Env, account: &Address) -> u32 {
+    env.storage()
+        .instance()
+        .get(&PersistentKey::AccountOpCount(account.clone()))
+        .unwrap_or(0)
+}
+
+pub fn increment_account_op_count(env: &Env, account: &Address) {
+    let count: u32 = get_account_op_count(env, account);
+    env.storage().instance().set(
+        &PersistentKey::AccountOpCount(account.clone()),
+        &(count.saturating_add(1)),
+    );
+}
+
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)

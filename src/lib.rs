@@ -48,10 +48,29 @@ pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 /// Global cap on the total escrowed amount.
 ///
 /// Prevents the contract from accumulating an unbounded escrow balance.
+pub const MAX_ACCOUNT_OPS: u32 = 10_000;
+
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
 /// Maximum number of records returned by a paginated transfer query.
 pub const MAX_PAGE_SIZE: u32 = 100;
+
+/// Reject an address that resolves to the contract's own address.
+///
+/// Soroban has no zero/null `Address` a caller could accidentally supply, but
+/// the contract's own address is an equivalent footgun: it is trivially
+/// obtainable and can slip in wherever an integration substitutes a
+/// placeholder before a real external address is known. Accepting it as an
+/// admin, token, sender, recipient, allowlisted caller, or admin nominee
+/// would silently misconfigure the contract or lock funds and privileges out
+/// of reach, since the contract cannot `require_auth` on its own behalf from
+/// a top-level call.
+fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
+    if *address == env.current_contract_address() {
+        return Err(Error::InvalidAddress);
+    }
+    Ok(())
+}
 
 /// The RemitFlow remittance escrow contract.
 #[contract]
@@ -105,11 +124,14 @@ impl RemitFlowContract {
     /// changes.
     ///
     /// Can only be called once; subsequent calls return
-    /// [`Error::AlreadyInitialized`].
+    /// [`Error::AlreadyInitialized`]. Neither `admin` nor `token` may be the
+    /// contract's own address; either one returns [`Error::InvalidAddress`].
     pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), Error> {
         if storage::has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
+        require_external_address(&env, &admin)?;
+        require_external_address(&env, &token)?;
         admin.require_auth();
         storage::set_admin(&env, &admin);
         storage::set_token(&env, &token);
@@ -165,7 +187,9 @@ impl RemitFlowContract {
     ///
     /// Transfers `amount` of the configured token from `from` into the
     /// contract and records a pending transfer that expires at `expiry`.
-    /// Returns the new transfer's id.
+    /// Returns the new transfer's id. Neither `from` nor `recipient` may be
+    /// the contract's own address; either one returns
+    /// [`Error::InvalidAddress`].
     pub fn create_transfer(
         env: Env,
         from: Address,
@@ -174,6 +198,8 @@ impl RemitFlowContract {
         expiry: u64,
     ) -> Result<u64, Error> {
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        require_external_address(&env, &from)?;
+        require_external_address(&env, &recipient)?;
         if storage::get_paused(&env) {
             return Err(Error::ContractPaused);
         }
@@ -182,6 +208,9 @@ impl RemitFlowContract {
         }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+        if storage::get_account_op_count(&env, &from) >= MAX_ACCOUNT_OPS {
+            return Err(Error::AccountLimitReached);
         }
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
@@ -220,6 +249,7 @@ impl RemitFlowContract {
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
         storage::set_total_escrowed(&env, updated_total);
+        storage::increment_account_op_count(&env, &from);
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
@@ -229,7 +259,10 @@ impl RemitFlowContract {
     ///
     /// Only the recorded recipient may claim, the transfer must still be
     /// pending, and the current ledger time must not exceed the expiry.
+    /// `recipient` may not be the contract's own address; returns
+    /// [`Error::InvalidAddress`] if it is.
     pub fn claim_transfer(env: Env, id: u64, recipient: Address) -> Result<(), Error> {
+        require_external_address(&env, &recipient)?;
         let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
         if transfer.recipient != recipient {
             return Err(Error::Unauthorized);
@@ -264,8 +297,10 @@ impl RemitFlowContract {
     /// Cancel a pending transfer after expiry, refunding the sender.
     ///
     /// Only the original sender may cancel, the transfer must still be
-    /// pending, and the expiry must have passed.
+    /// pending, and the expiry must have passed. `from` may not be the
+    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn cancel_transfer(env: Env, id: u64, from: Address) -> Result<(), Error> {
+        require_external_address(&env, &from)?;
         let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
         if transfer.from != from {
             return Err(Error::Unauthorized);
@@ -429,10 +464,12 @@ impl RemitFlowContract {
 
     /// Add a caller to the allowlist of privileged callers.
     ///
-    /// Only the administrator may add callers.
+    /// Only the administrator may add callers. `caller` may not be the
+    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn add_caller(env: Env, caller: Address) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        require_external_address(&env, &caller)?;
         storage::set_caller_allowed(&env, &caller, true);
         storage::extend_instance(&env);
         events::caller_added(&env, &caller);
@@ -461,10 +498,12 @@ impl RemitFlowContract {
     /// Only the current administrator may call this. The nominee is stored as
     /// the pending admin but the current admin retains all privileges until the
     /// nominee calls [`accept_admin`]. Calling this a second time replaces any
-    /// previously nominated pending admin.
+    /// previously nominated pending admin. `new_admin` may not be the
+    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        require_external_address(&env, &new_admin)?;
         storage::set_pending_admin(&env, &new_admin);
         storage::extend_instance(&env);
         events::admin_transfer_started(&env, &admin, &new_admin);

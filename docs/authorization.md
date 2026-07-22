@@ -50,3 +50,26 @@ The contract maintains an allowlist of privileged callers who are authorized to 
 ## Transfer Claiming and Cancellation
 * `claim_transfer` requires authorization from the recipient address specified in the transfer.
 * `cancel_transfer` requires authorization from the sender (`from`) address specified in the transfer.
+
+## Address Input Validation
+Soroban has no zero/null `Address` value that a legitimate caller could ever
+supply by accident the way Ethereum's `address(0)` shows up in Solidity. The
+contract's own address is the equivalent footgun: it is trivially obtainable
+(e.g. `env.current_contract_address()`) and can slip into a call wherever an
+integration substitutes a placeholder before a real external address is
+known. Accepting it would silently misconfigure the contract or lock funds
+and privileges out of reach, because the contract cannot `require_auth` on
+its own behalf from a top-level invocation.
+
+Every entrypoint that assigns a role to a supplied `Address` rejects the
+contract's own address with [`Error::InvalidAddress`](./error-reference.md)
+before performing any other validation or state change:
+* `initialize` — rejects the contract's own address as `admin` or `token`.
+* `create_transfer` — rejects the contract's own address as `from` or `recipient`.
+* `claim_transfer` — rejects the contract's own address as `recipient`.
+* `cancel_transfer` — rejects the contract's own address as `from`.
+* `add_caller` — rejects the contract's own address as `caller`.
+* `transfer_admin` — rejects the contract's own address as `new_admin`.
+
+`batch_operations` inherits this guard transparently, since it delegates to
+`create_transfer`, `claim_transfer`, and `cancel_transfer` for each operation.

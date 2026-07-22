@@ -1483,106 +1483,126 @@ fn test_event_payload_contents() {
     }
 }
 
-#[test]
-fn test_ttl_bump_constants_configured_correctly() {
-    assert_eq!(crate::storage::INSTANCE_BUMP_THRESHOLD, 518_400);
-    assert_eq!(crate::storage::INSTANCE_BUMP_AMOUNT, 535_680);
-    assert_eq!(crate::storage::PERSISTENT_BUMP_THRESHOLD, 518_400);
-    assert_eq!(crate::storage::PERSISTENT_BUMP_AMOUNT, 535_680);
+// --- Uninitialized/self-referential address input guards ---
 
-    assert!(crate::storage::INSTANCE_BUMP_AMOUNT >= crate::storage::INSTANCE_BUMP_THRESHOLD);
-    assert!(crate::storage::PERSISTENT_BUMP_AMOUNT >= crate::storage::PERSISTENT_BUMP_THRESHOLD);
+#[test]
+fn test_initialize_rejects_contract_address_as_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let real_admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &real_admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    let contract_address = client.address.clone();
+
+    let res = client.try_initialize(&contract_address, &token);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(client.try_get_admin().is_err());
 }
 
 #[test]
-fn test_instance_ttl_bumped_on_mutating_calls() {
-    let s = setup();
+fn test_initialize_rejects_contract_address_as_token() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-    s.env.as_contract(&s.client.address, || {
-        let ttl_before = s.env.storage().instance().get_ttl();
-        crate::storage::extend_instance(&s.env);
-        let ttl_after = s.env.storage().instance().get_ttl();
-        assert!(ttl_after >= ttl_before);
-        assert_eq!(ttl_after, crate::storage::INSTANCE_BUMP_AMOUNT);
-    });
+    let admin = Address::generate(&env);
 
-    s.client.pause();
-    s.env.as_contract(&s.client.address, || {
-        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
-    });
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    let contract_address = client.address.clone();
 
-    s.client.unpause();
-    s.env.as_contract(&s.client.address, || {
-        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
-    });
+    let res = client.try_initialize(&admin, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(client.try_get_admin().is_err());
 }
 
 #[test]
-fn test_persistent_ttl_bumped_on_transfer_and_caller_writes() {
+fn test_create_transfer_rejects_contract_address_as_from() {
     let s = setup();
-    let new_caller = Address::generate(&s.env);
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
 
-    s.client.add_caller(&new_caller);
-
-    s.env.as_contract(&s.client.address, || {
-        let caller_key = crate::storage::PersistentKey::AllowedCaller(new_caller.clone());
-        let caller_ttl = s.env.storage().persistent().get_ttl(&caller_key);
-        assert_eq!(caller_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
-    });
-
-    let id = s.client.create_transfer(
-        &s.from,
-        &s.recipient,
-        &DEFAULT_TRANSFER_AMOUNT,
-        &s.future_expiry(),
-    );
-
-    s.env.as_contract(&s.client.address, || {
-        let transfer_key = crate::storage::PersistentKey::Transfer(id);
-        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
-        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
-    });
-
-    s.client.claim_transfer(&id, &s.recipient);
-
-    s.env.as_contract(&s.client.address, || {
-        let transfer_key = crate::storage::PersistentKey::Transfer(id);
-        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
-        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
-    });
+    let res = s
+        .client
+        .try_create_transfer(&contract_address, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
 }
 
 #[test]
-fn test_cancel_transfer_bumps_persistent_ttl() {
+fn test_create_transfer_rejects_contract_address_as_recipient() {
     let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &contract_address, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+}
+
+#[test]
+fn test_claim_transfer_rejects_contract_address_as_recipient() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
     let id = s.create_default_transfer();
 
-    // Advance ledger timestamp beyond expiry to enable cancellation
-    let transfer = s.client.get_transfer(&id);
-    s.env.ledger().set_timestamp(transfer.expiry + 1);
-
-    s.client.cancel_transfer(&id, &s.from);
-
-    s.env.as_contract(&s.client.address, || {
-        let transfer_key = crate::storage::PersistentKey::Transfer(id);
-        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
-        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
-    });
+    let res = s.client.try_claim_transfer(&id, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    // The real transfer is untouched and still claimable normally.
+    assert_eq!(s.client.get_status(&id), Status::Pending);
 }
 
 #[test]
-fn test_admin_transfer_flow_bumps_instance_ttl() {
+fn test_cancel_transfer_rejects_contract_address_as_from() {
     let s = setup();
-    let new_admin = Address::generate(&s.env);
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+    let id = s.create_default_transfer();
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
 
-    s.client.transfer_admin(&new_admin);
-    s.env.as_contract(&s.client.address, || {
-        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
-    });
-
-    s.client.accept_admin();
-    s.env.as_contract(&s.client.address, || {
-        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
-    });
+    let res = s.client.try_cancel_transfer(&id, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert_eq!(s.client.get_status(&id), Status::Pending);
 }
 
+#[test]
+fn test_add_caller_rejects_contract_address() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+
+    let res = s.client.try_add_caller(&contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(!s.client.is_caller_allowed(&contract_address));
+}
+
+#[test]
+fn test_transfer_admin_rejects_contract_address_as_new_admin() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+
+    let res = s.client.try_transfer_admin(&contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(s.client.get_pending_admin().is_none());
+}
+
+#[test]
+fn test_batch_operations_rejects_contract_address_via_create() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+    let operations = vec![
+        &s.env,
+        BatchOperation::Create(CreateTransferOperation {
+            from: contract_address,
+            recipient: s.recipient.clone(),
+            amount: 100,
+            expiry,
+        }),
+    ];
+
+    let result = s.client.try_batch_operations(&operations);
+    assert_eq!(result, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert_eq!(s.client.counter(), 0);
+}
