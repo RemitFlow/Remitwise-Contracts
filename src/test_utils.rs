@@ -10,10 +10,6 @@ pub(crate) const DEFAULT_SENDER_BALANCE: i128 = 1_000;
 pub(crate) const DEFAULT_TRANSFER_AMOUNT: i128 = 400;
 pub(crate) const DEFAULT_EXPIRY_OFFSET: u64 = 1_000;
 
-/// Common fixture for contract tests.
-///
-/// The fixture deploys and initializes RemitFlow, deploys its Stellar Asset
-/// Contract, creates the standard test actors, and funds the sender.
 pub(crate) struct TestFixture<'a> {
     pub(crate) env: Env,
     pub(crate) client: RemitFlowContractClient<'a>,
@@ -40,14 +36,7 @@ impl<'a> TestFixture<'a> {
         let client = RemitFlowContractClient::new(&env, &contract_id);
         client.initialize(&admin, &token);
 
-        Self {
-            env,
-            client,
-            token,
-            admin,
-            from,
-            recipient,
-        }
+        Self { env, client, token, admin, from, recipient }
     }
 
     pub(crate) fn token_client(&self) -> TokenClient<'_> {
@@ -59,11 +48,24 @@ impl<'a> TestFixture<'a> {
     }
 
     pub(crate) fn create_default_transfer(&self) -> u64 {
-        self.client.create_transfer(
-            &self.from,
-            &self.recipient,
-            &DEFAULT_TRANSFER_AMOUNT,
-            &self.future_expiry(),
-        )
+        self.client.create_transfer(&self.from, &self.recipient, &DEFAULT_TRANSFER_AMOUNT, &self.future_expiry())
     }
+}
+
+/// Assert that a fallible call returns the expected error.
+pub(crate) fn assert_auth_failure<T>(result: Result<T, crate::error::Error>, expected: crate::error::Error) {
+    match result {
+        Err(e) => assert_eq!(e, expected),
+        Ok(_) => panic!("expected error but operation succeeded"),
+    }
+}
+
+/// Assert that an operation fails with Unauthorized.
+pub(crate) fn assert_unauthorized<T>(result: Result<T, crate::error::Error>) {
+    assert_auth_failure(result, crate::error::Error::Unauthorized);
+}
+
+/// Assert that an operation fails with NotInitialized.
+pub(crate) fn assert_not_initialized<T>(result: Result<T, crate::error::Error>) {
+    assert_auth_failure(result, crate::error::Error::NotInitialized);
 }
