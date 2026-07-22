@@ -99,8 +99,41 @@ fn test_unpause_requires_admin_auth() {
 ```rust
 #[test]
 fn test_admin_operations_require_initialization() {
-    // Ensures admin operations fail if contract not initialized
+    // Ensures pause, unpause, and other admin ops fail when contract is not initialized
 }
+```
+
+### Storage TTL Bump Testing
+
+Tests verify that Time-To-Live (TTL) bump logic functions correctly across storage tiers:
+
+```rust
+#[test]
+fn test_ttl_bump_constants_configured_correctly() {
+    // Verifies INSTANCE_BUMP_THRESHOLD/AMOUNT and PERSISTENT_BUMP_THRESHOLD/AMOUNT constants
+}
+
+#[test]
+fn test_instance_ttl_bumped_on_mutating_calls() {
+    // Verifies instance storage TTL extensions on mutating contract entrypoints
+}
+
+#[test]
+fn test_persistent_ttl_bumped_on_transfer_and_caller_writes() {
+    // Verifies persistent storage TTL extensions when writing transfers and allowed callers
+}
+
+#[test]
+fn test_cancel_transfer_bumps_persistent_ttl() {
+    // Ensures cancelling an expired transfer extends persistent storage TTL
+}
+
+#[test]
+fn test_admin_transfer_flow_bumps_instance_ttl() {
+    // Verifies instance TTL bumps during 2-step admin ownership transfer
+}
+```
+
 
 #[test]
 fn test_pause_and_unpause_state_changes() {

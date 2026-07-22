@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
 use soroban_sdk::testutils::{Address as _, Events, Ledger};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
 use soroban_sdk::{vec, Address, Env, IntoVal};
@@ -1481,3 +1482,107 @@ fn test_event_payload_contents() {
         assert_eq!(newest_admin, new_admin);
     }
 }
+
+#[test]
+fn test_ttl_bump_constants_configured_correctly() {
+    assert_eq!(crate::storage::INSTANCE_BUMP_THRESHOLD, 518_400);
+    assert_eq!(crate::storage::INSTANCE_BUMP_AMOUNT, 535_680);
+    assert_eq!(crate::storage::PERSISTENT_BUMP_THRESHOLD, 518_400);
+    assert_eq!(crate::storage::PERSISTENT_BUMP_AMOUNT, 535_680);
+
+    assert!(crate::storage::INSTANCE_BUMP_AMOUNT >= crate::storage::INSTANCE_BUMP_THRESHOLD);
+    assert!(crate::storage::PERSISTENT_BUMP_AMOUNT >= crate::storage::PERSISTENT_BUMP_THRESHOLD);
+}
+
+#[test]
+fn test_instance_ttl_bumped_on_mutating_calls() {
+    let s = setup();
+
+    s.env.as_contract(&s.client.address, || {
+        let ttl_before = s.env.storage().instance().get_ttl();
+        crate::storage::extend_instance(&s.env);
+        let ttl_after = s.env.storage().instance().get_ttl();
+        assert!(ttl_after >= ttl_before);
+        assert_eq!(ttl_after, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.pause();
+    s.env.as_contract(&s.client.address, || {
+        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.unpause();
+    s.env.as_contract(&s.client.address, || {
+        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_persistent_ttl_bumped_on_transfer_and_caller_writes() {
+    let s = setup();
+    let new_caller = Address::generate(&s.env);
+
+    s.client.add_caller(&new_caller);
+
+    s.env.as_contract(&s.client.address, || {
+        let caller_key = crate::storage::PersistentKey::AllowedCaller(new_caller.clone());
+        let caller_ttl = s.env.storage().persistent().get_ttl(&caller_key);
+        assert_eq!(caller_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+
+    let id = s.client.create_transfer(
+        &s.from,
+        &s.recipient,
+        &DEFAULT_TRANSFER_AMOUNT,
+        &s.future_expiry(),
+    );
+
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+
+    s.client.claim_transfer(&id, &s.recipient);
+
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_cancel_transfer_bumps_persistent_ttl() {
+    let s = setup();
+    let id = s.create_default_transfer();
+
+    // Advance ledger timestamp beyond expiry to enable cancellation
+    let transfer = s.client.get_transfer(&id);
+    s.env.ledger().set_timestamp(transfer.expiry + 1);
+
+    s.client.cancel_transfer(&id, &s.from);
+
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let transfer_ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(transfer_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_admin_transfer_flow_bumps_instance_ttl() {
+    let s = setup();
+    let new_admin = Address::generate(&s.env);
+
+    s.client.transfer_admin(&new_admin);
+    s.env.as_contract(&s.client.address, || {
+        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.accept_admin();
+    s.env.as_contract(&s.client.address, || {
+        assert_eq!(s.env.storage().instance().get_ttl(), crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+}
+

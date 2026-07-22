@@ -60,6 +60,13 @@ The contract includes comprehensive unit tests organized by functionality:
   `i128::MAX`
 - Rejection of negative amounts and rates above 10,000 basis points
 
+### Storage & Storage TTL Bump Tests
+- **test_ttl_bump_constants_configured_correctly**: Verifies that instance and persistent TTL threshold (`518_400`) and bump amount (`535_680`) constants are configured correctly and satisfy `amount >= threshold`
+- **test_instance_ttl_bumped_on_mutating_calls**: Ensures mutating calls (e.g. `pause`, `unpause`) invoke `storage::extend_instance` and refresh instance TTL
+- **test_persistent_ttl_bumped_on_transfer_and_caller_writes**: Validates that adding callers, creating transfers, and claiming transfers refresh persistent TTLs for `PersistentKey::AllowedCaller` and `PersistentKey::Transfer`
+- **test_cancel_transfer_bumps_persistent_ttl**: Confirms that cancelling an expired transfer extends persistent TTL for the transfer record
+- **test_admin_transfer_flow_bumps_instance_ttl**: Verifies that `transfer_admin` and `accept_admin` refresh instance TTL
+
 ### Pause/Unpause Tests
 - **test_pause_blocks_create_transfer**: Verifies pause prevents new transfer creation
 - **test_pause_by_admin_succeeds**: Validates admin can pause the contract
