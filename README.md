@@ -192,3 +192,4 @@ The RemitFlow contract follows a single-admin authority model for upgrades.
 - Consider a timelock for sensitive admin operations
 - The admin cannot steal escrowed funds (only pause new transfers)
 - Future versions may add admin transfer or multisig support
+get_transfers_paged(26, 25)
