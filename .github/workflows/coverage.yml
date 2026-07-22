@@ -21,11 +21,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.81.0
+          toolchain: 1.90.0
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Create output directory
+        run: mkdir -p target/llvm-cov
 
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path target/llvm-cov/lcov.info
