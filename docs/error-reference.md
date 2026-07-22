@@ -27,6 +27,8 @@ meaning, and the entrypoints that can produce it.
 | 14 | `ExpiryTooFar` | The supplied `expiry` is further in the future than [`MAX_EXPIRY_WINDOW`](https://github.com/RemitFlow/Remitwise-Contracts/blob/main/src/lib.rs) (~1 year / 31,536,000 seconds) from now. | `create_transfer` |
 | 15 | `EscrowCapReached` | Accepting this transfer would push the total escrowed balance above [`MAX_TOTAL_ESCROWED`](https://github.com/RemitFlow/Remitwise-Contracts/blob/main/src/lib.rs). | `create_transfer` |
 | 16 | `CallerNotAllowed` | The `from` address is not on the privileged callers allowlist. Only allowlisted addresses may create transfers. | `create_transfer` |
+| 17 | `NoPendingAdmin` | `accept_admin` was called but no admin transfer has been nominated via `transfer_admin`. | `accept_admin` |
+| 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
 
 ---
 
@@ -34,14 +36,18 @@ meaning, and the entrypoints that can produce it.
 
 | Entrypoint | Possible Errors |
 |---|---|
-| `initialize` | `AlreadyInitialized` (1)* |
+| `initialize` | `AlreadyInitialized` (1)*, `InvalidAddress` (18) |
 | `get_admin`, `get_token` | `NotInitialized` (2) |
 | `counter`, `is_paused`, `is_caller_allowed` | None† |
 | `pause`, `unpause` | `NotInitialized` (2) |
-| `add_caller`, `remove_caller` | `NotInitialized` (2) |
-| `create_transfer` | `NotInitialized` (2), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6) |
-| `claim_transfer` | `NotInitialized` (2), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9) |
-| `cancel_transfer` | `NotInitialized` (2), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10) |
+| `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |
+| `remove_caller` | `NotInitialized` (2) |
+| `create_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6) |
+| `claim_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9) |
+| `cancel_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10) |
+| `transfer_admin` | `NotInitialized` (2), `InvalidAddress` (18) |
+| `accept_admin` | `NoPendingAdmin` (17), `NotInitialized` (2) |
+| `get_pending_admin` | None† |
 | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)‡ |
 | `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | None† |
 | `batch_operations` | Any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` depending on the operations in the batch |

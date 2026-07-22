@@ -18,6 +18,15 @@ soroban-sdk = "=21.7.6"
 [dev-dependencies]
 soroban-sdk = { version = "=21.7.6", features = ["testutils"] }
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[[bench]]
+name = "create_transfer"
+path = "benches/bench_create_transfer.rs"
+harness = false
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true

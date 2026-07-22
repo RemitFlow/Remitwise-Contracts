@@ -1,48 +1,29 @@
-# RemitFlow Contract
+## Deployment Funding
 
-RemitFlow is a cross-border remittance escrow smart contract for the
-[Soroban](https://soroban.stellar.org) platform on Stellar.
+Deploying a Soroban contract requires the deployer account to hold sufficient XLM.
 
-A sender locks token funds in escrow for a recipient with an expiry deadline.
-The recipient can claim the funds before expiry; if they do not, the sender can
-cancel the transfer and reclaim the funds after the deadline passes.
+- Contract deployment: approx 5 XLM for WASM upload and instance creation
+- Instance storage rent: approx 2 XLM for initial TTL allocation
+- Persistent storage rent: approx 0.5 XLM per transfer record
+- Transaction fee: 0.00001 XLM per invocation
+- TTL extension: approx 1 XLM per year
 
-## Entrypoints
+Recommended minimum deployer balance: 20 XLM
 
-| Function | Description |
-| --- | --- |
-| `initialize(admin, token)` | Configure the admin and token; callable once. |
-| `create_transfer(from, recipient, amount, expiry) -> u64` | Lock funds in escrow and return the transfer id. Caller `from` must be allowlisted. |
-| `batch_operations(operations) -> Vec<BatchOperationResult>` | Atomically execute an ordered batch of create, claim, and cancel operations. |
-| `claim_transfer(id, recipient)` | Recipient claims a pending, unexpired transfer. |
-| `cancel_transfer(id, from)` | Sender reclaims a pending transfer after expiry. |
-| `pause()` | Admin pauses creation of new transfers. |
-| `unpause()` | Admin re-enables creation of new transfers. |
-| `add_caller(caller)` | Add a caller to the allowlist of privileged callers (admin-only). |
-| `remove_caller(caller)` | Remove a caller from the allowlist of privileged callers (admin-only). |
-| `is_caller_allowed(caller) -> bool` | Check whether a caller is on the privileged callers allowlist. |
-| `get_transfer(id) -> Transfer` | Read a stored transfer record. |
-| `get_transfers_paged(start_id, limit) -> Vec<Transfer>` | Read up to 100 transfers beginning at the inclusive transfer id. |
-| `get_status(id) -> Status` | Read just a transfer's lifecycle status. |
-| `is_expired(id) -> bool` | Check whether a transfer has passed its expiry. |
-| `is_paused() -> bool` | Report whether the contract is paused. |
-| `transfer_exists(id) -> bool` | Check whether a transfer id has been recorded. |
-| `count_by_status(status) -> u64` | Count created transfers with a given status. |
-| `count_for_sender(from) -> u64` | Count transfers funded by an address. |
-| `count_for_recipient(recipient) -> u64` | Count transfers targeting an address. |
-| `total_escrowed() -> i128` | Sum the amounts of all pending transfers using saturating arithmetic so the aggregate clamps instead of overflowing. |
-| `get_admin() -> Address` | Return the configured admin. |
-| `get_token() -> Address` | Return the configured token. |
-| `counter() -> u64` | Return the number of transfers created. |
-| `get_limits() -> ConfiguredLimits` | Return the contract's configured operational limits. |
+Testnet tokens available from Stellar Friendbot at https://friendbot.stellar.org
+## Multisig-Compatible Administration
 
+The contract currently uses a single admin address. For production deployments requiring multisig security:
 
-### Paginating transfers
+- The admin key can be a Stellar multisig account (e.g., 2-of-3 threshold)
+- Multisig transactions require all signers to authorize via Stellar's native multisig
+- No contract changes needed - Soroban respects Stellar account thresholds natively
+- Future contract versions may add on-chain admin set management
+## Minimum Supported SDK Version
 
-Call `get_transfers_paged(start_id, limit)` to read records without loading the
-entire transfer history. Transfer ids begin at `1`, and `start_id` is
-inclusive, so the next page begins at one more than the final id returned:
-
+- Soroban SDK: 21.7.6 (pinned in Cargo.toml)
+- Rust toolchain: 1.81.0 (stable)
+- WASM target: wasm32-unknown-unknown
 ```text
 get_transfers_paged(1, 25)
 get_transfers_paged(26, 25)
@@ -69,6 +50,10 @@ make build
 cargo build --target wasm32-unknown-unknown --release
 ```
 
+For a detailed explanation of what makes the build deterministic and how to
+verify that two builds produce the same artifact, see the
+[Reproducible Builds guide](docs/reproducible-build.md).
+
 Run the test suite:
 
 ```sh
@@ -94,6 +79,11 @@ details.
 
 The compiled artifact is written to
 `target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
+
+Release WASM is limited to 65,536 bytes (64 KiB). Run `make check-wasm-size`
+before opening a pull request; CI enforces the same limit. See the
+[WASM size budget](docs/resource-limits.md) for measurement details and
+guidance on keeping additions within budget.
 
 ## Deploy
 
@@ -202,3 +192,4 @@ The RemitFlow contract follows a single-admin authority model for upgrades.
 - Consider a timelock for sensitive admin operations
 - The admin cannot steal escrowed funds (only pause new transfers)
 - Future versions may add admin transfer or multisig support
+get_transfers_paged(26, 25)

@@ -39,4 +39,9 @@ pub enum Error {
     CallerNotAllowed = 16,
     /// `accept_admin` was called but no pending admin transfer has been initiated.
     NoPendingAdmin = 17,
+    /// The supplied address resolves to the contract's own address where an
+    /// external party address is required.
+    InvalidAddress = 18,
+    /// An account exceeded its allowed number of operations.
+    AccountLimitReached = 19,
 }

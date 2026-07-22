@@ -112,4 +112,97 @@ mod tests {
         assert_eq!(calculate_fee(-1, 100), None);
         assert_eq!(calculate_fee(100, BASIS_POINTS_DENOMINATOR + 1), None);
     }
+
+    #[test]
+    fn minimum_value_checked_add_sub_handles_boundaries() {
+        // Zero — identity and subtraction from identity
+        assert_eq!(checked_add_amount(0, 0), Some(0));
+        assert_eq!(checked_add_amount(0, 42), Some(42));
+        assert_eq!(checked_sub_amount(0, 0), Some(0));
+        assert_eq!(checked_sub_amount(42, 0), Some(42));
+
+        // Smallest representable values
+        assert_eq!(checked_add_amount(i128::MIN, 0), Some(i128::MIN));
+        assert_eq!(checked_add_amount(i128::MIN, 1), Some(i128::MIN + 1));
+        assert_eq!(checked_sub_amount(i128::MIN, 0), Some(i128::MIN));
+
+        // Just past the minimum overflows
+        assert_eq!(checked_add_amount(i128::MIN, -1), None);
+        assert_eq!(checked_sub_amount(i128::MIN, 1), None);
+        assert_eq!(checked_sub_amount(i128::MAX, -1), None);
+    }
+
+    #[test]
+    fn minimum_value_checked_increment_handles_boundaries() {
+        // Zero — smallest possible value
+        assert_eq!(checked_increment(0), Some(1));
+
+        // Just below overflow
+        assert_eq!(checked_increment(u64::MAX - 1), Some(u64::MAX));
+        assert_eq!(checked_increment(u64::MAX), None);
+    }
+
+    #[test]
+    fn minimum_value_saturating_add_handles_boundaries() {
+        // Zero — identity
+        assert_eq!(saturating_add_amount(0, 0), 0);
+        assert_eq!(saturating_add_amount(0, 42), 42);
+        assert_eq!(saturating_add_amount(42, 0), 42);
+
+        // Negative minimum clamps inward
+        assert_eq!(saturating_add_amount(i128::MIN, 0), i128::MIN);
+        assert_eq!(saturating_add_amount(i128::MIN, 1), i128::MIN + 1);
+        assert_eq!(saturating_add_amount(i128::MIN, -1), i128::MIN);
+
+        // Smallest positive deltas
+        assert_eq!(saturating_add_amount(1, 1), 2);
+        assert_eq!(saturating_add_amount(1, -1), 0);
+        assert_eq!(saturating_add_amount(-1, 1), 0);
+    }
+
+    #[test]
+    fn minimum_value_saturating_add_with_cap_handles_boundaries() {
+        // All zeros
+        assert_eq!(saturating_add_with_cap(0, 0, 0), 0);
+        assert_eq!(saturating_add_with_cap(0, 0, 100), 0);
+
+        // Zero delta, non-zero value and cap
+        assert_eq!(saturating_add_with_cap(5, 0, 100), 5);
+
+        // Cap of zero — sum always clamped
+        assert_eq!(saturating_add_with_cap(0, 0, 0), 0);
+        assert_eq!(saturating_add_with_cap(5, 3, 0), 0);
+
+        // Smallest non-zero deltas
+        assert_eq!(saturating_add_with_cap(0, 1, 1), 1);
+        assert_eq!(saturating_add_with_cap(0, 1, 100), 1);
+
+        // u64::MIN through u64::MAX range
+        assert_eq!(saturating_add_with_cap(u64::MIN, u64::MIN, u64::MAX), 0);
+    }
+
+    #[test]
+    fn minimum_value_calculate_fee_handles_boundaries() {
+        // Zero amount — always zero fee
+        assert_eq!(calculate_fee(0, 0), Some(0));
+        assert_eq!(calculate_fee(0, 100), Some(0));
+        assert_eq!(calculate_fee(0, BASIS_POINTS_DENOMINATOR), Some(0));
+
+        // Smallest positive amount — rounding down to zero for small rates
+        assert_eq!(calculate_fee(1, 1), Some(0)); // 1 * 0.01% rounds down
+        assert_eq!(calculate_fee(1, 100), Some(0)); // 1 * 1% rounds down
+        assert_eq!(calculate_fee(1, 5000), Some(0)); // 1 * 50% rounds down
+        assert_eq!(calculate_fee(1, BASIS_POINTS_DENOMINATOR), Some(1)); // 1 * 100% = 1
+
+        // Smallest rate (1 bp) on small amounts
+        assert_eq!(calculate_fee(100, 1), Some(0)); // 1bp of 100
+        assert_eq!(calculate_fee(10_000, 1), Some(1)); // 1bp of 10,000
+
+        // Amount of exactly 1 with varying rates
+        assert_eq!(calculate_fee(1, BASIS_POINTS_DENOMINATOR), Some(1));
+
+        // Minimum valid basis points
+        assert_eq!(calculate_fee(10_000, 1), Some(1));
+        assert_eq!(calculate_fee(10_000, 0), Some(0));
+    }
 }
