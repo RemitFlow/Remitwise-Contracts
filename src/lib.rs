@@ -5,8 +5,14 @@
 //! Senders lock token funds for a recipient with an expiry. The recipient can
 //! claim the funds; the sender can cancel and reclaim them after expiry.
 
+// soroban `#[contracttype]` generates Arbitrary impls under `testutils`,
+// which need `std`. Link it for test builds only; wasm builds stay no_std.
+#[cfg(test)]
+extern crate std;
+
 mod error;
 mod events;
+pub mod math;
 mod storage;
 mod types;
 
@@ -17,16 +23,8 @@ mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
-fn saturating_increment_u64(value: u64) -> u64 {
-    value.saturating_add(1)
-}
-
-fn saturating_add_with_cap(value: u64, delta: u64, cap: u64) -> u64 {
-    value.saturating_add(delta).min(cap)
-}
-
 use crate::error::Error;
-use crate::types::{Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -52,13 +50,59 @@ pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 /// Prevents the contract from accumulating an unbounded escrow balance.
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
+/// Maximum number of records returned by a paginated transfer query.
+pub const MAX_PAGE_SIZE: u32 = 100;
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
 
 #[contractimpl]
 impl RemitFlowContract {
+    /// Execute several transfer operations atomically in one contract call.
+    ///
+    /// Operations run in order. If any operation fails, the error is returned
+    /// and Soroban rolls back every token movement, storage write, and event
+    /// produced earlier in the batch.
+    pub fn batch_operations(
+        env: Env,
+        operations: Vec<BatchOperation>,
+    ) -> Result<Vec<BatchOperationResult>, Error> {
+        let mut results = Vec::new(&env);
+        for operation in operations.iter() {
+            let result = match operation {
+                BatchOperation::Create(params) => {
+                    let id = Self::create_transfer(
+                        env.clone(),
+                        params.from,
+                        params.recipient,
+                        params.amount,
+                        params.expiry,
+                    )?;
+                    BatchOperationResult::Created(id)
+                },
+                BatchOperation::Claim(params) => {
+                    Self::claim_transfer(env.clone(), params.id, params.recipient)?;
+                    BatchOperationResult::Claimed
+                },
+                BatchOperation::Cancel(params) => {
+                    Self::cancel_transfer(env.clone(), params.id, params.from)?;
+                    BatchOperationResult::Cancelled
+                },
+            };
+            results.push_back(result);
+        }
+        Ok(results)
+    }
+
     /// Initialize the contract with an administrator and token address.
+    ///
+    /// The provided address is treated as the custody holder for the contract's
+    /// administrative authority. The contract stores this address as the sole
+    /// admin and requires its authorization for privileged entrypoints. In
+    /// practice, this key should be managed off-chain with strong custody
+    /// controls because compromise would allow pause/unpause and allowlist
+    /// changes.
     ///
     /// Can only be called once; subsequent calls return
     /// [`Error::AlreadyInitialized`].
@@ -92,8 +136,9 @@ impl RemitFlowContract {
 
     /// Pause the contract, blocking creation of new transfers.
     ///
-    /// Only the administrator may pause. Claims and cancellations of
-    /// existing transfers remain available while paused.
+    /// The configured admin address is the only authority that may pause the
+    /// contract. Claims and cancellations of existing transfers remain
+    /// available while paused.
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
@@ -105,7 +150,8 @@ impl RemitFlowContract {
 
     /// Unpause the contract, re-enabling creation of new transfers.
     ///
-    /// Only the administrator may unpause.
+    /// The configured admin address is the only authority that may unpause the
+    /// contract.
     pub fn unpause(env: Env) -> Result<(), Error> {
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
@@ -140,9 +186,11 @@ impl RemitFlowContract {
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
-        let total_escrowed = Self::total_escrowed(env.clone());
-        if total_escrowed + amount > MAX_TOTAL_ESCROWED {
-            return Err(Error::AmountTooLarge);
+        let total_escrowed = storage::get_total_escrowed(&env);
+        let updated_total =
+            math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
+        if updated_total > MAX_TOTAL_ESCROWED {
+            return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();
         if expiry <= now {
@@ -156,16 +204,10 @@ impl RemitFlowContract {
         }
         from.require_auth();
 
-        let id = saturating_increment_u64(storage::get_counter(&env));
-        if id == u64::MAX {
-            return Err(Error::CounterOverflow);
-        }
+        let id =
+            math::checked_increment(storage::get_counter(&env)).ok_or(Error::CounterOverflow)?;
 
-        token::Client::new(&env, &token).transfer(
-            &from,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
         let transfer = Transfer {
             id,
@@ -177,6 +219,7 @@ impl RemitFlowContract {
         };
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
+        storage::set_total_escrowed(&env, updated_total);
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
@@ -207,6 +250,10 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Claimed;
+        storage::set_total_escrowed(
+            &env,
+            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+        );
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -239,6 +286,10 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Cancelled;
+        storage::set_total_escrowed(
+            &env,
+            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+        );
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -270,18 +321,23 @@ impl RemitFlowContract {
 
     /// Return a page of transfer records starting at `start_id`.
     ///
-    /// Collects up to `limit` existing transfers with ids in
-    /// `start_id..=counter`, skipping any gaps. A `limit` of zero yields an
-    /// empty page.
+    /// Collects up to `min(limit, MAX_PAGE_SIZE)` existing transfers with ids
+    /// in `start_id..=counter`, skipping any gaps. `start_id` is inclusive and
+    /// values below one are treated as one. A `limit` of zero, an empty
+    /// contract, or a start id beyond the counter yields an empty page.
     pub fn get_transfers_paged(env: Env, start_id: u64, limit: u32) -> Vec<Transfer> {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
         let mut id = start_id.max(1);
-        while id <= last && page.len() < limit {
+        let page_size = limit.min(MAX_PAGE_SIZE);
+        while id <= last && page.len() < page_size {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 page.push_back(transfer);
             }
-            id += 1;
+            match id.checked_add(1) {
+                Some(next_id) => id = next_id,
+                None => break,
+            }
         }
         page
     }
@@ -297,7 +353,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.status == Status::Pending {
-                    total = total.saturating_add(transfer.amount);
+                    total = math::saturating_add_amount(total, transfer.amount);
                 }
             }
             id += 1;
@@ -325,7 +381,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.from == from {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -344,7 +400,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.recipient == recipient {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -363,7 +419,7 @@ impl RemitFlowContract {
         while id <= last {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 if transfer.status == status {
-                    count = saturating_add_with_cap(count, 1, u64::MAX);
+                    count = math::saturating_add_with_cap(count, 1, u64::MAX);
                 }
             }
             id += 1;
@@ -398,5 +454,44 @@ impl RemitFlowContract {
     /// Return true if the caller is on the privileged callers allowlist.
     pub fn is_caller_allowed(env: Env, caller: Address) -> bool {
         storage::is_caller_allowed(&env, &caller)
+    }
+
+    /// Initiate a two-step admin ownership transfer by nominating a successor.
+    ///
+    /// Only the current administrator may call this. The nominee is stored as
+    /// the pending admin but the current admin retains all privileges until the
+    /// nominee calls [`accept_admin`]. Calling this a second time replaces any
+    /// previously nominated pending admin.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_pending_admin(&env, &new_admin);
+        storage::extend_instance(&env);
+        events::admin_transfer_started(&env, &admin, &new_admin);
+        Ok(())
+    }
+
+    /// Complete a two-step admin ownership transfer.
+    ///
+    /// Must be called by the address previously nominated via [`transfer_admin`].
+    /// On success the nominee becomes the new administrator and the pending-admin
+    /// slot is cleared. Returns [`Error::NoPendingAdmin`] if no transfer has
+    /// been initiated.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending = storage::get_pending_admin(&env).ok_or(Error::NoPendingAdmin)?;
+        pending.require_auth();
+        let old_admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        storage::set_admin(&env, &pending);
+        storage::clear_pending_admin(&env);
+        storage::extend_instance(&env);
+        events::admin_transfer_completed(&env, &old_admin, &pending);
+        Ok(())
+    }
+
+    /// Return the nominated pending admin address, if a transfer is in progress.
+    ///
+    /// Returns `None` when no two-step transfer has been initiated.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        storage::get_pending_admin(&env)
     }
 }
