@@ -3,6 +3,12 @@ default: build
 build:
 	cargo build --target wasm32-unknown-unknown --release
 
+check-wasm-size: build
+	./scripts/check-wasm-size.sh
+
+test-wasm-size-check:
+	./scripts/test-check-wasm-size.sh
+
 optimize: build
 	stellar contract optimize --wasm target/wasm32-unknown-unknown/release/remitflow_contract.wasm
 
@@ -44,4 +50,4 @@ deploy:
 		$(if $(WASM),--wasm $(WASM),) \
 		$(if $(SKIP_BUILD),--skip-build,)
 
-.PHONY: default build optimize test coverage coverage-lcov fmt fmt-check lint doc clean deploy
+.PHONY: default build check-wasm-size test-wasm-size-check optimize test coverage coverage-lcov fmt fmt-check lint doc clean deploy

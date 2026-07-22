@@ -50,6 +50,16 @@ To optimize the contract for deployment (requires Soroban CLI):
 make optimize
 ```
 
+The release contract has a 65,536-byte (64 KiB) WASM size budget. Build and
+check it locally before submitting changes:
+
+```bash
+make check-wasm-size
+```
+
+CI runs the same byte-for-byte check. See the
+[WASM size budget](docs/resource-limits.md) for contributor guidance.
+
 ### Testing
 
 We highly value automated tests. Please ensure that all existing tests pass and that you add tests for any new features or bug fixes.

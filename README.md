@@ -80,6 +80,11 @@ details.
 The compiled artifact is written to
 `target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
 
+Release WASM is limited to 65,536 bytes (64 KiB). Run `make check-wasm-size`
+before opening a pull request; CI enforces the same limit. See the
+[WASM size budget](docs/resource-limits.md) for measurement details and
+guidance on keeping additions within budget.
+
 ## Deploy
 
 Use the automated script to build, deploy, and initialize in one step:
