@@ -42,4 +42,6 @@ pub enum Error {
     /// The supplied address resolves to the contract's own address where an
     /// external party address is required.
     InvalidAddress = 18,
+    /// An account exceeded its allowed number of operations.
+    AccountLimitReached = 19,
 }
