@@ -152,6 +152,87 @@ fn test_initialize_twice_fails() {
 }
 
 #[test]
+fn test_reinitialize_with_different_admin_and_token_fails() {
+    let s = setup();
+    let new_admin = Address::generate(&s.env);
+    let new_token = Address::generate(&s.env);
+
+    let res = s.client.try_initialize(&new_admin, &new_token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+    assert_eq!(s.client.get_admin(), s.admin);
+    assert_eq!(s.client.get_token(), s.token);
+}
+
+#[test]
+fn test_reinitialize_after_admin_transfer_fails() {
+    let s = setup();
+    let new_admin = Address::generate(&s.env);
+
+    s.client.transfer_admin(&new_admin);
+    s.client.accept_admin();
+
+    assert_eq!(s.client.get_admin(), new_admin);
+
+    // Attempt re-initialization with the old admin
+    let res1 = s.client.try_initialize(&s.admin, &s.token);
+    assert_eq!(res1, Err(Ok(crate::error::Error::AlreadyInitialized)));
+
+    // Attempt re-initialization with the new admin
+    let res2 = s.client.try_initialize(&new_admin, &s.token);
+    assert_eq!(res2, Err(Ok(crate::error::Error::AlreadyInitialized)));
+
+    assert_eq!(s.client.get_admin(), new_admin);
+    assert_eq!(s.client.get_token(), s.token);
+}
+
+#[test]
+fn test_reinitialize_after_active_transfers_and_state_changes_fails() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.client.pause();
+
+    let new_admin = Address::generate(&s.env);
+    let new_token = Address::generate(&s.env);
+
+    let res = s.client.try_initialize(&new_admin, &new_token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+
+    // Verify existing state integrity remains untouched
+    assert_eq!(s.client.get_admin(), s.admin);
+    assert_eq!(s.client.get_token(), s.token);
+    assert_eq!(s.client.counter(), 1);
+    assert_eq!(s.client.total_escrowed(), DEFAULT_TRANSFER_AMOUNT);
+    assert!(s.client.is_paused());
+    assert_eq!(s.client.get_transfer(&id).amount, DEFAULT_TRANSFER_AMOUNT);
+}
+
+#[test]
+fn test_reinitialize_by_unauthorized_caller_fails() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    let fake_token = Address::generate(&s.env);
+
+    let res = s.client.try_initialize(&stranger, &fake_token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+    assert_eq!(s.client.get_admin(), s.admin);
+}
+
+#[test]
+fn test_reinitialize_does_not_emit_init_event() {
+    let s = setup();
+    let initial_event_count = s.env.events().all().len();
+
+    let new_admin = Address::generate(&s.env);
+    let new_token = Address::generate(&s.env);
+
+    let res = s.client.try_initialize(&new_admin, &new_token);
+    assert_eq!(res, Err(Ok(crate::error::Error::AlreadyInitialized)));
+
+    // No new events should have been emitted during the failed re-initialization
+    assert_eq!(s.env.events().all().len(), initial_event_count);
+}
+
+#[test]
 fn test_create_transfer_moves_funds_to_escrow() {
     let s = setup();
     let token_client = s.token_client();
