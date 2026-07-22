@@ -533,4 +533,19 @@ impl RemitFlowContract {
     pub fn get_pending_admin(env: Env) -> Option<Address> {
         storage::get_pending_admin(&env)
     }
+
+    /// Rotate the administrator address directly in a single transaction.
+    ///
+    /// Only the current administrator may call this. Updates the admin to
+    /// `new_admin` immediately and emits an `admin_rotated` event. `new_admin`
+    /// may not be the contract's own address; returns [`Error::InvalidAddress`] if it is.
+    pub fn rotate_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        require_external_address(&env, &new_admin)?;
+        storage::set_admin(&env, &new_admin);
+        storage::extend_instance(&env);
+        events::admin_rotated(&env, &admin, &new_admin);
+        Ok(())
+    }
 }

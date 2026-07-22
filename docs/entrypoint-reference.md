@@ -46,6 +46,14 @@ Returns the currently nominated pending admin address.
 * **Authorization**: None (public view)
 * Returns `None` when no transfer is in progress.
 
+### `rotate_admin(new_admin: Address) -> Result<(), Error>`
+Rotates the administrator address directly in a single transaction.
+* **Authorization**: Current admin (`admin.require_auth()`)
+* **Effect**: Immediately overwrites the admin slot with `new_admin`.
+* **Events**: Emits `admin_rotated` with `(old_admin, new_admin)`.
+* **Errors**: `NotInitialized` if the contract is not initialized; `InvalidAddress`
+  if `new_admin` is the contract's own address.
+
 ## Privileged Callers Allowlist Management
 
 ### `add_caller(caller: Address) -> Result<(), Error>`

@@ -8,7 +8,7 @@ remitflow-contract is a Soroban smart contract on the Stellar network. This page
 Only the configured administrator address can perform administrative operations. The contract enforces this by verifying `admin.require_auth()` for the following entrypoints:
 * `pause` / `unpause`
 * `add_caller` / `remove_caller`
-* `transfer_admin`
+* `transfer_admin` / `rotate_admin`
 
 ## Admin Ownership Transfer (Two-Step)
 
@@ -32,7 +32,7 @@ Transferring administrator ownership is a **two-step process** to prevent accide
 Returns the currently nominated pending admin, or `None` if no transfer is in progress.
 
 ## Admin Key Custody Model
-The contract uses a single admin address configured at initialization. That address becomes the sole authority for privileged operations and is stored directly in contract instance storage. The contract does not implement admin rotation, multisig, or policy-based control inside the Wasm; all custody decisions are expected to happen off-chain.
+The contract uses a single admin address configured at initialization. That address becomes the sole authority for privileged operations and is stored directly in contract instance storage. Direct admin rotation is available via `rotate_admin(new_admin)`, which updates the admin slot in a single step and emits an `admin_rotated` event. Two-step ownership transfer is also available via `transfer_admin` and `accept_admin`.
 
 Recommended custody practices:
 * Hold the admin key in a hardware wallet or another purpose-built custody solution.
@@ -70,6 +70,7 @@ before performing any other validation or state change:
 * `cancel_transfer` — rejects the contract's own address as `from`.
 * `add_caller` — rejects the contract's own address as `caller`.
 * `transfer_admin` — rejects the contract's own address as `new_admin`.
+* `rotate_admin` — rejects the contract's own address as `new_admin`.
 
 `batch_operations` inherits this guard transparently, since it delegates to
 `create_transfer`, `claim_transfer`, and `cancel_transfer` for each operation.

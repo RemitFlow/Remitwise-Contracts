@@ -16,6 +16,7 @@ This document describes all events emitted by the RemitFlow smart contract, deta
 | `cancelled` | `("cancelled", id: u64)` | `(from: Address, amount: i128)` | Sender cancels and receives a refund for an expired transfer. |
 | `admin_transfer_started` | `("admin_transfer_started",)` | `(current_admin: Address, pending_admin: Address)` | Admin initiates ownership transfer. |
 | `admin_transfer_completed` | `("admin_transfer_completed",)` | `(old_admin: Address, new_admin: Address)` | Pending admin accepts ownership transfer. |
+| `admin_rotated` | `("admin_rotated",)` | `(old_admin: Address, new_admin: Address)` | Admin rotates ownership directly to a new admin address. |
 
 ## Event Payload Verification
 All events emitted by the contract are tested for topic alignment and payload structural integrity inside the automated test suite under the `test_event_payload_contents` unit test case.

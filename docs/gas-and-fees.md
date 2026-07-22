@@ -19,7 +19,7 @@ with a `SorobanError: ResourceExhausted` — no partial state changes survive.
 | Category | Entrypoints | Complexity | Notes |
 |---|---|---|---|
 | **Constant-time** | `initialize`, `get_admin`, `get_token`, `counter` | O(1) | 1–2 storage reads, no loops |
-| **Admin actions** | `pause`, `unpause`, `add_caller`, `remove_caller` | O(1) | Auth check + 1 storage write + event |
+| **Admin actions** | `pause`, `unpause`, `add_caller`, `remove_caller`, `transfer_admin`, `accept_admin`, `rotate_admin` | O(1) | Auth check + 1 storage write + event |
 | **Single-read** | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | O(1) | 1 storage read by id |
 | **Single-mutate** | `claim_transfer`, `cancel_transfer` | O(1) | 1 storage read, auth check, token transfer, 1 storage write |
 | **Create** | `create_transfer` | **O(n)** incurs internal call to `total_escrowed()` which scans all transfers |

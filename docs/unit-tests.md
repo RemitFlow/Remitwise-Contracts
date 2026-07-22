@@ -44,7 +44,7 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
 
 ### Event Validation Tests
-- **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 10 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, and `admin_transfer_completed`).
+- **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 11 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, `admin_transfer_completed`, and `admin_rotated`).
 
 
 ### Reusable Math Module Tests
@@ -74,6 +74,9 @@ These tests specifically validate authorization mechanisms for admin-only operat
 - **test_pause_requires_admin_auth**: Verifies pause() enforces admin authentication
 - **test_unpause_requires_admin_auth**: Verifies unpause() enforces admin authentication
 - **test_admin_guard_on_pause_with_mock_all_auths**: Tests pause/unpause with authentication mocking
+- **test_rotate_admin_succeeds_and_emits_event**: Validates direct admin rotation updates stored admin and emits `admin_rotated` event
+- **test_rotate_admin_requires_admin_auth**: Verifies rotate_admin() enforces admin authentication
+- **test_rotate_admin_rejects_contract_address_as_new_admin**: Validates input validation guard against contract's own address
 
 ### Operational Constraints
 - **test_admin_operations_require_initialization**: Ensures admin operations fail if contract not initialized

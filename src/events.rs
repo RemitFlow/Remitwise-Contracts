@@ -68,3 +68,14 @@ pub fn admin_transfer_completed(env: &Env, old_admin: &Address, new_admin: &Addr
     env.events()
         .publish(topics, (old_admin.clone(), new_admin.clone()));
 }
+
+/// Publish an event recording that the administrator address was rotated directly.
+///
+/// Emitted by `rotate_admin`. `old_admin` is the previous administrator and
+/// `new_admin` is the address that now holds the role.
+pub fn admin_rotated(env: &Env, old_admin: &Address, new_admin: &Address) {
+    let topics = (Symbol::new(env, "admin_rotated"),);
+    env.events()
+        .publish(topics, (old_admin.clone(), new_admin.clone()));
+}
+

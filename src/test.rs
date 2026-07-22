@@ -1183,14 +1183,18 @@ fn test_event_payload_contents() {
     s.client.transfer_admin(&new_admin); // emits "admin_transfer_started"
     s.client.accept_admin(); // emits "admin_transfer_completed"
 
+    // 7. Admin rotation
+    let rotated_admin = Address::generate(&s.env);
+    s.client.rotate_admin(&rotated_admin); // emits "admin_rotated"
+
     // Now retrieve all events
     let events = s.env.events().all();
 
     // Filter events emitted by our contract
     let contract_events: std::vec::Vec<_> = events.iter().filter(|e| e.0 == client_addr).collect();
 
-    // Total expected events: 12
-    assert_eq!(contract_events.len(), 12);
+    // Total expected events: 13
+    assert_eq!(contract_events.len(), 13);
 
     // Event 0: init
     {
@@ -1399,6 +1403,24 @@ fn test_event_payload_contents() {
         assert_eq!(old_admin, s.admin);
         assert_eq!(newest_admin, new_admin);
     }
+
+    // Event 12: admin_rotated
+    {
+        let event = &contract_events[12];
+        let topics = &event.1;
+        let data = &event.2;
+
+        let topic_symbol: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(
+            topic_symbol,
+            soroban_sdk::Symbol::new(&s.env, "admin_rotated")
+        );
+        assert_eq!(topics.len(), 1);
+
+        let (prev_admin, new_rotated_admin): (Address, Address) = data.clone().into_val(&s.env);
+        assert_eq!(prev_admin, new_admin);
+        assert_eq!(new_rotated_admin, rotated_admin);
+    }
 }
 
 // --- Uninitialized/self-referential address input guards ---
@@ -1523,4 +1545,58 @@ fn test_batch_operations_rejects_contract_address_via_create() {
     let result = s.client.try_batch_operations(&operations);
     assert_eq!(result, Err(Ok(crate::error::Error::InvalidAddress)));
     assert_eq!(s.client.counter(), 0);
+}
+
+#[test]
+fn test_rotate_admin_succeeds_and_emits_event() {
+    let s = setup();
+    let new_admin = Address::generate(&s.env);
+
+    s.client.rotate_admin(&new_admin);
+
+    assert_eq!(s.client.get_admin(), new_admin);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> = events
+        .iter()
+        .filter(|e| e.0 == s.client.address)
+        .collect();
+
+    let last_event = contract_events.last().unwrap();
+    let topic_symbol: soroban_sdk::Symbol = last_event.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::Symbol::new(&s.env, "admin_rotated")
+    );
+
+    let (old_admin, newest_admin): (Address, Address) = last_event.2.clone().into_val(&s.env);
+    assert_eq!(old_admin, s.admin);
+    assert_eq!(newest_admin, new_admin);
+}
+
+#[test]
+fn test_rotate_admin_requires_admin_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+    client.initialize(&admin, &token);
+    env.set_auths(&[]);
+
+    let new_admin = Address::generate(&env);
+    let res = client.try_rotate_admin(&new_admin);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_rotate_admin_rejects_contract_address_as_new_admin() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+
+    let res = s.client.try_rotate_admin(&contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert_eq!(s.client.get_admin(), s.admin);
 }
