@@ -1,0 +1,11 @@
+# Clippy configuration - ban unwrap/expect in contract code
+disallowed-methods = [
+    "std::option::Option::unwrap",
+    "std::result::Result::unwrap",
+    "std::option::Option::expect",
+    "std::result::Result::expect",
+    "core::option::Option::unwrap",
+    "core::result::Result::unwrap",
+    "core::option::Option::expect",
+    "core::result::Result::expect",
+]
