@@ -28,7 +28,8 @@ Initiates a two-step admin ownership transfer by nominating a successor.
   all privileges until `accept_admin` is called. A subsequent call replaces any
   existing pending admin.
 * **Events**: Emits `admin_transfer_started` with `(current_admin, new_admin)`.
-* **Errors**: `NotInitialized` if the contract is not initialized.
+* **Errors**: `NotInitialized` if the contract is not initialized; `InvalidAddress`
+  if `new_admin` is the contract's own address.
 
 ### `accept_admin() -> Result<(), Error>`
 Completes a two-step admin ownership transfer.
@@ -51,7 +52,9 @@ Returns the currently nominated pending admin address.
 Adds an address to the privileged callers allowlist.
 * **Authorization**: Admin
 * **Events**: Emits `caller_added` event with the caller's address.
-* **Errors**: `NotInitialized` if the contract is not initialized, `AlreadyInitialized` or others from invalid admin authentication.
+* **Errors**: `NotInitialized` if the contract is not initialized; `InvalidAddress`
+  if `caller` is the contract's own address; `AlreadyInitialized` or others from
+  invalid admin authentication.
 
 ### `remove_caller(caller: Address) -> Result<(), Error>`
 Removes an address from the privileged callers allowlist.

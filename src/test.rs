@@ -1400,3 +1400,127 @@ fn test_event_payload_contents() {
         assert_eq!(newest_admin, new_admin);
     }
 }
+
+// --- Uninitialized/self-referential address input guards ---
+
+#[test]
+fn test_initialize_rejects_contract_address_as_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let real_admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &real_admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    let contract_address = client.address.clone();
+
+    let res = client.try_initialize(&contract_address, &token);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(client.try_get_admin().is_err());
+}
+
+#[test]
+fn test_initialize_rejects_contract_address_as_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    let contract_address = client.address.clone();
+
+    let res = client.try_initialize(&admin, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(client.try_get_admin().is_err());
+}
+
+#[test]
+fn test_create_transfer_rejects_contract_address_as_from() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+
+    let res = s
+        .client
+        .try_create_transfer(&contract_address, &s.recipient, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+}
+
+#[test]
+fn test_create_transfer_rejects_contract_address_as_recipient() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &contract_address, &100, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+}
+
+#[test]
+fn test_claim_transfer_rejects_contract_address_as_recipient() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let id = s.create_default_transfer();
+
+    let res = s.client.try_claim_transfer(&id, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    // The real transfer is untouched and still claimable normally.
+    assert_eq!(s.client.get_status(&id), Status::Pending);
+}
+
+#[test]
+fn test_cancel_transfer_rejects_contract_address_as_from() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+    let id = s.create_default_transfer();
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+
+    let res = s.client.try_cancel_transfer(&id, &contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert_eq!(s.client.get_status(&id), Status::Pending);
+}
+
+#[test]
+fn test_add_caller_rejects_contract_address() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+
+    let res = s.client.try_add_caller(&contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(!s.client.is_caller_allowed(&contract_address));
+}
+
+#[test]
+fn test_transfer_admin_rejects_contract_address_as_new_admin() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+
+    let res = s.client.try_transfer_admin(&contract_address);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert!(s.client.get_pending_admin().is_none());
+}
+
+#[test]
+fn test_batch_operations_rejects_contract_address_via_create() {
+    let s = setup();
+    let contract_address = s.client.address.clone();
+    let expiry = s.future_expiry();
+    let operations = vec![
+        &s.env,
+        BatchOperation::Create(CreateTransferOperation {
+            from: contract_address,
+            recipient: s.recipient.clone(),
+            amount: 100,
+            expiry,
+        }),
+    ];
+
+    let result = s.client.try_batch_operations(&operations);
+    assert_eq!(result, Err(Ok(crate::error::Error::InvalidAddress)));
+    assert_eq!(s.client.counter(), 0);
+}
