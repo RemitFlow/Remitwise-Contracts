@@ -78,4 +78,3 @@ pub fn admin_rotated(env: &Env, old_admin: &Address, new_admin: &Address) {
     env.events()
         .publish(topics, (old_admin.clone(), new_admin.clone()));
 }
-

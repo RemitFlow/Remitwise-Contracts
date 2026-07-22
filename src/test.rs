@@ -1557,10 +1557,8 @@ fn test_rotate_admin_succeeds_and_emits_event() {
     assert_eq!(s.client.get_admin(), new_admin);
 
     let events = s.env.events().all();
-    let contract_events: std::vec::Vec<_> = events
-        .iter()
-        .filter(|e| e.0 == s.client.address)
-        .collect();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
 
     let last_event = contract_events.last().unwrap();
     let topic_symbol: soroban_sdk::Symbol = last_event.1.get(0).unwrap().into_val(&s.env);
