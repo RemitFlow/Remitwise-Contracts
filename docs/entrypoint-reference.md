@@ -46,6 +46,12 @@ Returns the currently nominated pending admin address.
 * **Authorization**: None (public view)
 * Returns `None` when no transfer is in progress.
 
+### `get_balances(addresses: Vec<Address>) -> Result<Vec<i128>, Error>`
+Bulk-read token balances for a list of addresses in a single contract query.
+* **Authorization**: None (public view)
+* **Returns**: Vector of token balances (`Vec<i128>`) matching the input addresses in order.
+* **Errors**: `NotInitialized` if the contract is not initialized.
+
 ## Privileged Callers Allowlist Management
 
 ### `add_caller(caller: Address) -> Result<(), Error>`

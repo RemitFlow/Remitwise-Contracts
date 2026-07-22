@@ -1524,3 +1524,50 @@ fn test_batch_operations_rejects_contract_address_via_create() {
     assert_eq!(result, Err(Ok(crate::error::Error::InvalidAddress)));
     assert_eq!(s.client.counter(), 0);
 }
+
+// --- Bulk-read balances tests ---
+
+#[test]
+fn test_get_balances_returns_balances_in_order() {
+    let s = setup();
+    let addr1 = Address::generate(&s.env);
+    let addr2 = Address::generate(&s.env);
+
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&addr1, &500);
+    token_admin.mint(&addr2, &1000);
+
+    let addresses = vec![
+        &s.env,
+        s.from.clone(),
+        addr1.clone(),
+        addr2.clone(),
+        s.recipient.clone(),
+    ];
+    let balances = s.client.get_balances(&addresses);
+
+    assert_eq!(balances.len(), 4);
+    assert_eq!(balances.get(0).unwrap(), DEFAULT_SENDER_BALANCE);
+    assert_eq!(balances.get(1).unwrap(), 500);
+    assert_eq!(balances.get(2).unwrap(), 1000);
+    assert_eq!(balances.get(3).unwrap(), 0);
+}
+
+#[test]
+fn test_get_balances_empty_addresses_list() {
+    let s = setup();
+    let addresses = vec![&s.env];
+    let balances = s.client.get_balances(&addresses);
+    assert_eq!(balances.len(), 0);
+}
+
+#[test]
+fn test_get_balances_uninitialized_contract() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    let addr = Address::generate(&env);
+    let res = client.try_get_balances(&vec![&env, addr]);
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+}

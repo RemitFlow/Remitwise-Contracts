@@ -37,7 +37,7 @@ meaning, and the entrypoints that can produce it.
 | Entrypoint | Possible Errors |
 |---|---|
 | `initialize` | `AlreadyInitialized` (1)*, `InvalidAddress` (18) |
-| `get_admin`, `get_token` | `NotInitialized` (2) |
+| `get_admin`, `get_token`, `get_balances` | `NotInitialized` (2) |
 | `counter`, `is_paused`, `is_caller_allowed` | None† |
 | `pause`, `unpause` | `NotInitialized` (2) |
 | `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |

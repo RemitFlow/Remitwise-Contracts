@@ -42,6 +42,9 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_get_transfers_paged_respects_limit_and_start**: Validates pagination functionality
 - **test_is_expired_reflects_ledger_time**: Verifies expiry status matches ledger time
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
+- **test_get_balances_returns_balances_in_order**: Validates bulk-reading token balances for a list of addresses
+- **test_get_balances_empty_addresses_list**: Verifies get_balances with an empty address vector
+- **test_get_balances_uninitialized_contract**: Validates get_balances fails if contract is uninitialized
 
 ### Event Validation Tests
 - **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 10 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, and `admin_transfer_completed`).
