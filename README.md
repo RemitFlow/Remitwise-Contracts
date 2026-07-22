@@ -24,6 +24,120 @@ The contract currently uses a single admin address. For production deployments r
 - Soroban SDK: 21.7.6 (pinned in Cargo.toml)
 - Rust toolchain: 1.81.0 (stable)
 - WASM target: wasm32-unknown-unknown
+```text
+get_transfers_paged(1, 25)
+get_transfers_paged(26, 25)
+```
+
+The contract returns at most `MAX_PAGE_SIZE` (100) records per call. A zero
+limit, an empty contract, or a start id beyond the current counter returns an
+empty vector. A start id of zero is treated as one.
+
+
+## Admin key custody model
+
+The contract uses a single admin address that is configured once at initialization. That address is the only authority permitted to pause or unpause the contract and to manage the privileged caller allowlist. The contract does not include an on-chain admin rotation or multisig mechanism, so key custody remains an off-chain operational responsibility.
+
+Recommended practice is to hold the admin key in a hardware wallet or dedicated custody solution, ideally with a multisig or timelock guard for any sensitive operation. A compromised admin key can pause the contract and modify the allowlist, but it cannot directly withdraw escrowed funds from the contract.
+
+## Build
+
+Build the optimized WASM with the pinned toolchain:
+
+```sh
+make build
+# or directly:
+cargo build --target wasm32-unknown-unknown --release
+```
+
+For a detailed explanation of what makes the build deterministic and how to
+verify that two builds produce the same artifact, see the
+[Reproducible Builds guide](docs/reproducible-build.md).
+
+Run the test suite:
+
+```sh
+make test
+# or directly:
+cargo test
+```
+
+Reusable checked arithmetic, saturating aggregate helpers, and basis-point fee
+calculations are provided by `src/math.rs`. See the
+[math module guide](docs/math-module.md) for behavior and usage rules.
+
+Generate an HTML coverage report:
+
+```sh
+cargo install cargo-llvm-cov --locked
+make coverage
+```
+
+Open `target/llvm-cov/html/index.html` in a browser to inspect the report. See
+the [testing guide](docs/testing-guide.md#coverage) for LCOV output and CI
+details.
+
+The compiled artifact is written to
+`target/wasm32-unknown-unknown/release/remitflow_contract.wasm`.
+
+## Deploy
+
+Use the automated script to build, deploy, and initialize in one step:
+
+```sh
+./scripts/deploy-and-initialize.sh \
+  --network  testnet \
+  --source   my-key \
+  --admin    GABC...XYZ \
+  --token    CABC...XYZ
+```
+
+Or via `make`:
+
+```sh
+make deploy \
+  NETWORK=testnet \
+  SOURCE=my-key \
+  ADMIN=GABC...XYZ \
+  TOKEN=CABC...XYZ
+```
+
+The script builds the WASM, deploys it, and calls `initialize` in one
+transaction sequence. It prints the contract ID and suggested next steps on
+success. Pass `--skip-build` to reuse an already-compiled WASM.
+
+See the [Deployment Guide](docs/deployment-guide.md) for the full options
+reference, manual CLI steps, and mainnet instructions.
+
+## Aggregate behaviour
+
+Aggregate helpers now use saturating fallbacks so counters and tallies avoid overflowing in extreme cases. This keeps transfer counts and escrow totals bounded even when many transfers are recorded.
+## Global escrow cap
+
+The contract now enforces a global cap on the total escrowed amount so the system does not accumulate an unbounded balance. Creating a transfer that would exceed this cap returns an explicit error.
+
+## Transfer lifecycle
+
+Each transfer moves through the following states:
+
+- `Pending` — created and funded, awaiting action.
+- `Claimed` — recipient withdrew the funds before expiry (terminal).
+- `Cancelled` — sender reclaimed the funds after expiry (terminal).
+
+Only `Pending` transfers can be claimed or cancelled. Claims must happen on or
+before the expiry timestamp; cancellations are only allowed strictly after it.
+
+## Batch operations
+
+`batch_operations` accepts an ordered `Vec<BatchOperation>` containing
+`Create`, `Claim`, and `Cancel` variants. It returns one result per operation,
+including the id assigned to each created transfer. The call is atomic: if any
+operation fails validation or authorization, the entire batch is rolled back,
+including earlier token transfers, state changes, and events.
+
+## License
+
+Licensed under the MIT License.
 
 ## Resource Costs
 

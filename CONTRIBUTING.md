@@ -27,6 +27,23 @@ To compile the smart contract:
 make build
 ```
 
+The build is **deterministic** — compiling the same commit on any machine
+produces a byte-identical WASM. See the
+[Reproducible Builds guide](docs/reproducible-build.md) for a full explanation
+of the pinned toolchain, locked dependencies, and release profile settings that
+make this possible.
+
+### Verifying a deployed contract matches the source
+
+After deployment, confirm the on-chain WASM matches your local build:
+
+```bash
+./scripts/verify-wasm-hash.sh testnet <CONTRACT_ID>
+```
+
+This is especially important for contributors building on branches that will be
+audited or deployed to mainnet.
+
 To optimize the contract for deployment (requires Soroban CLI):
 
 ```bash
