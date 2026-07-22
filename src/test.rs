@@ -1586,3 +1586,27 @@ fn test_admin_transfer_flow_bumps_instance_ttl() {
     });
 }
 
+#[test]
+fn test_get_limits_returns_configured_constants() {
+    let s = setup();
+    let limits = s.client.get_limits();
+    assert_eq!(limits.max_amount, crate::MAX_AMOUNT);
+    assert_eq!(limits.max_expiry_window, crate::MAX_EXPIRY_WINDOW);
+    assert_eq!(limits.max_total_escrowed, crate::MAX_TOTAL_ESCROWED);
+    assert_eq!(limits.max_page_size, crate::MAX_PAGE_SIZE);
+}
+
+#[test]
+fn test_get_limits_works_uninitialized() {
+    let env = Env::default();
+    let contract_id = env.register(RemitFlowContract, ());
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    let limits = client.get_limits();
+    assert_eq!(limits.max_amount, crate::MAX_AMOUNT);
+    assert_eq!(limits.max_expiry_window, crate::MAX_EXPIRY_WINDOW);
+    assert_eq!(limits.max_total_escrowed, crate::MAX_TOTAL_ESCROWED);
+    assert_eq!(limits.max_page_size, crate::MAX_PAGE_SIZE);
+}
+
+

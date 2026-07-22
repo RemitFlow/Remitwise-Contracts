@@ -34,6 +34,8 @@ cancel the transfer and reclaim the funds after the deadline passes.
 | `get_admin() -> Address` | Return the configured admin. |
 | `get_token() -> Address` | Return the configured token. |
 | `counter() -> u64` | Return the number of transfers created. |
+| `get_limits() -> ConfiguredLimits` | Return the contract's configured operational limits. |
+
 
 ### Paginating transfers
 

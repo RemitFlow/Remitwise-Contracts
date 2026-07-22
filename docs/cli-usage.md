@@ -187,6 +187,10 @@ stellar contract invoke --id $CONTRACT_ID --network $NETWORK \
 # Count transfers for a recipient
 stellar contract invoke --id $CONTRACT_ID --network $NETWORK \
   -- count_for_recipient --recipient <ADDRESS>
+
+# Get configured limits
+stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- get_limits
+
 ```
 
 ---
