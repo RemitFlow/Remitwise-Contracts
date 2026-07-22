@@ -19,6 +19,11 @@ The contract currently uses a single admin address. For production deployments r
 - Multisig transactions require all signers to authorize via Stellar's native multisig
 - No contract changes needed - Soroban respects Stellar account thresholds natively
 - Future contract versions may add on-chain admin set management
+## Minimum Supported SDK Version
+
+- Soroban SDK: 21.7.6 (pinned in Cargo.toml)
+- Rust toolchain: 1.81.0 (stable)
+- WASM target: wasm32-unknown-unknown
 
 ## Resource Costs
 
