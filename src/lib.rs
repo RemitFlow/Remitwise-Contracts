@@ -72,6 +72,27 @@ fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Verify that the contract's actual token balance can still cover the
+/// amount its internal ledger believes is held in escrow.
+///
+/// `TotalEscrowed` is maintained incrementally by `create_transfer`,
+/// `claim_transfer`, and `cancel_transfer` rather than recomputed from the
+/// token balance on every call, so it can only be trusted if it is checked
+/// against reality. Comparing the two here, immediately after each mutation,
+/// catches a bookkeeping bug (a missed or double-applied update) at the
+/// point it is introduced instead of letting it compound silently until a
+/// later claim overpays or the escrow is found insolvent. It also catches
+/// the token contract itself under-delivering funds, e.g. a fee-on-transfer
+/// or rebasing token that credits the contract with less than the amount
+/// requested.
+fn assert_supply_invariant(env: &Env, token: &Address) -> Result<(), Error> {
+    let balance = token::Client::new(env, token).balance(&env.current_contract_address());
+    if balance < storage::get_total_escrowed(env) {
+        return Err(Error::SupplyInvariantViolation);
+    }
+    Ok(())
+}
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -250,6 +271,7 @@ impl RemitFlowContract {
         storage::set_counter(&env, id);
         storage::set_total_escrowed(&env, updated_total);
         storage::increment_account_op_count(&env, &from);
+        assert_supply_invariant(&env, &token)?;
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
@@ -287,6 +309,7 @@ impl RemitFlowContract {
             &env,
             storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
         );
+        assert_supply_invariant(&env, &token)?;
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -325,6 +348,7 @@ impl RemitFlowContract {
             &env,
             storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
         );
+        assert_supply_invariant(&env, &token)?;
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -394,6 +418,22 @@ impl RemitFlowContract {
             id += 1;
         }
         total
+    }
+
+    /// Verify the contract's supply-accounting invariant on demand.
+    ///
+    /// Returns `Ok(())` when the contract's actual token balance can cover
+    /// its accounted `TotalEscrowed` liability, or
+    /// [`Error::SupplyInvariantViolation`] if the two have diverged. This is
+    /// the same check performed automatically after every entrypoint that
+    /// moves escrowed funds ([`create_transfer`](Self::create_transfer),
+    /// [`claim_transfer`](Self::claim_transfer),
+    /// [`cancel_transfer`](Self::cancel_transfer)); exposing it here lets
+    /// off-chain monitoring audit contract solvency independently, without
+    /// waiting for a mutating call to trip it.
+    pub fn check_supply_invariant(env: Env) -> Result<(), Error> {
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        assert_supply_invariant(&env, &token)
     }
 
     /// Return true if the transfer with the given id has passed its expiry.

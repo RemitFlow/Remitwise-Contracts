@@ -44,4 +44,7 @@ pub enum Error {
     InvalidAddress = 18,
     /// An account exceeded its allowed number of operations.
     AccountLimitReached = 19,
+    /// The contract's actual token balance is less than its internally
+    /// tracked `TotalEscrowed` liability.
+    SupplyInvariantViolation = 20,
 }

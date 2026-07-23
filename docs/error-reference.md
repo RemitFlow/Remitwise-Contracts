@@ -29,6 +29,7 @@ meaning, and the entrypoints that can produce it.
 | 16 | `CallerNotAllowed` | The `from` address is not on the privileged callers allowlist. Only allowlisted addresses may create transfers. | `create_transfer` |
 | 17 | `NoPendingAdmin` | `accept_admin` was called but no admin transfer has been nominated via `transfer_admin`. | `accept_admin` |
 | 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
+| 20 | `SupplyInvariantViolation` | The contract's actual token balance is less than its internally tracked `TotalEscrowed` liability. Checked automatically after every entrypoint that moves escrowed funds; see [Invariants](./invariants.md). | `create_transfer`, `claim_transfer`, `cancel_transfer`, `check_supply_invariant` |
 
 ---
 
@@ -42,9 +43,10 @@ meaning, and the entrypoints that can produce it.
 | `pause`, `unpause` | `NotInitialized` (2) |
 | `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `remove_caller` | `NotInitialized` (2) |
-| `create_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6) |
-| `claim_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9) |
-| `cancel_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10) |
+| `create_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6), `SupplyInvariantViolation` (20) |
+| `claim_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9), `SupplyInvariantViolation` (20) |
+| `cancel_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10), `SupplyInvariantViolation` (20) |
+| `check_supply_invariant` | `NotInitialized` (2), `SupplyInvariantViolation` (20) |
 | `transfer_admin` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `accept_admin` | `NoPendingAdmin` (17), `NotInitialized` (2) |
 | `get_pending_admin` | None† |

@@ -377,6 +377,141 @@ fn test_total_escrowed_tracks_pending_amounts() {
     assert_eq!(s.client.total_escrowed(), 200);
 }
 
+// --- Supply-accounting invariant tests ---
+
+#[test]
+fn test_check_supply_invariant_holds_through_create_claim_cancel_lifecycle() {
+    let s = setup();
+    let token_client = s.token_client();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    s.client.check_supply_invariant();
+
+    let claimed_id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &300, &expiry);
+    let cancelled_id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    assert!(token_client.balance(&s.client.address) >= s.client.total_escrowed());
+    s.client.check_supply_invariant();
+
+    s.client.claim_transfer(&claimed_id, &s.recipient);
+    assert!(token_client.balance(&s.client.address) >= s.client.total_escrowed());
+    s.client.check_supply_invariant();
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    s.client.cancel_transfer(&cancelled_id, &s.from);
+    assert!(token_client.balance(&s.client.address) >= s.client.total_escrowed());
+    s.client.check_supply_invariant();
+}
+
+#[test]
+fn test_check_supply_invariant_requires_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    let res = client.try_check_supply_invariant();
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+}
+
+#[test]
+fn test_check_supply_invariant_detects_liability_exceeding_balance() {
+    let s = setup();
+    s.create_default_transfer();
+
+    // Simulate an accounting bug: the ledger believes far more is escrowed
+    // than the contract actually holds.
+    s.env.as_contract(&s.client.address, || {
+        crate::storage::set_total_escrowed(&s.env, 1_000_000)
+    });
+
+    let res = s.client.try_check_supply_invariant();
+    assert_eq!(res, Err(Ok(crate::error::Error::SupplyInvariantViolation)));
+}
+
+#[test]
+fn test_create_transfer_reverts_when_supply_invariant_would_be_violated() {
+    let s = setup();
+    let token_client = s.token_client();
+    let expiry = s.env.ledger().timestamp() + 1_000;
+
+    // Inflate the tracked liability so that even after this transfer's
+    // funds land in the contract, the balance can't cover it.
+    s.env.as_contract(&s.client.address, || {
+        crate::storage::set_total_escrowed(&s.env, 1_000_000)
+    });
+
+    let res = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &400, &expiry);
+    assert_eq!(res, Err(Ok(crate::error::Error::SupplyInvariantViolation)));
+
+    // The whole invocation rolled back: no token movement, no new transfer.
+    assert_eq!(s.client.counter(), 0);
+    assert_eq!(token_client.balance(&s.from), DEFAULT_SENDER_BALANCE);
+    assert_eq!(token_client.balance(&s.client.address), 0);
+    assert!(!s.client.transfer_exists(&1));
+}
+
+#[test]
+fn test_claim_transfer_reverts_when_supply_invariant_would_be_violated() {
+    let s = setup();
+    let token_client = s.token_client();
+    let id = s.create_default_transfer();
+
+    // Inflate the tracked liability so that paying out this claim would
+    // leave the contract unable to cover what remains accounted for.
+    s.env.as_contract(&s.client.address, || {
+        crate::storage::set_total_escrowed(&s.env, 1_000_000)
+    });
+
+    let res = s.client.try_claim_transfer(&id, &s.recipient);
+    assert_eq!(res, Err(Ok(crate::error::Error::SupplyInvariantViolation)));
+
+    // The payout rolled back: recipient unpaid, funds still in escrow.
+    assert_eq!(token_client.balance(&s.recipient), 0);
+    assert_eq!(
+        token_client.balance(&s.client.address),
+        DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(s.client.get_transfer(&id).status, Status::Pending);
+}
+
+#[test]
+fn test_cancel_transfer_reverts_when_supply_invariant_would_be_violated() {
+    let s = setup();
+    let token_client = s.token_client();
+    let id = s.create_default_transfer();
+
+    s.env.as_contract(&s.client.address, || {
+        crate::storage::set_total_escrowed(&s.env, 1_000_000)
+    });
+
+    s.env
+        .ledger()
+        .with_mut(|l| l.timestamp += DEFAULT_EXPIRY_OFFSET + 1);
+    let res = s.client.try_cancel_transfer(&id, &s.from);
+    assert_eq!(res, Err(Ok(crate::error::Error::SupplyInvariantViolation)));
+
+    // The refund rolled back: sender unpaid, funds still in escrow.
+    assert_eq!(
+        token_client.balance(&s.from),
+        DEFAULT_SENDER_BALANCE - DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(
+        token_client.balance(&s.client.address),
+        DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(s.client.get_transfer(&id).status, Status::Pending);
+}
+
 #[test]
 fn test_count_for_sender_and_recipient() {
     let s = setup();
