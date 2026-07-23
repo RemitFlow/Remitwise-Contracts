@@ -44,4 +44,5 @@ pub enum Error {
     InvalidAddress = 18,
     /// An account exceeded its allowed number of operations.
     AccountLimitReached = 19,
+    InvalidNonce = 20,
 }

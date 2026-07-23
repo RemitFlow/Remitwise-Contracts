@@ -161,12 +161,17 @@ impl RemitFlowContract {
     /// The configured admin address is the only authority that may pause the
     /// contract. Claims and cancellations of existing transfers remain
     /// available while paused.
-    pub fn pause(env: Env) -> Result<(), Error> {
+    pub fn pause(env: Env, nonce: u64) -> Result<(), Error> {
+        let expected = storage::get_admin_nonce(&env).saturating_add(1);
+        if nonce != expected {
+            return Err(Error::InvalidNonce);
+        }
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, true);
         storage::extend_instance(&env);
         events::paused(&env, &admin);
+        storage::next_admin_nonce(&env);
         Ok(())
     }
 
@@ -174,12 +179,17 @@ impl RemitFlowContract {
     ///
     /// The configured admin address is the only authority that may unpause the
     /// contract.
-    pub fn unpause(env: Env) -> Result<(), Error> {
+    pub fn unpause(env: Env, nonce: u64) -> Result<(), Error> {
+        let expected = storage::get_admin_nonce(&env).saturating_add(1);
+        if nonce != expected {
+            return Err(Error::InvalidNonce);
+        }
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, false);
         storage::extend_instance(&env);
         events::unpaused(&env, &admin);
+        storage::next_admin_nonce(&env);
         Ok(())
     }
 
@@ -466,25 +476,35 @@ impl RemitFlowContract {
     ///
     /// Only the administrator may add callers. `caller` may not be the
     /// contract's own address; returns [`Error::InvalidAddress`] if it is.
-    pub fn add_caller(env: Env, caller: Address) -> Result<(), Error> {
+    pub fn add_caller(env: Env, caller: Address, nonce: u64) -> Result<(), Error> {
+        let expected = storage::get_admin_nonce(&env).saturating_add(1);
+        if nonce != expected {
+            return Err(Error::InvalidNonce);
+        }
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         require_external_address(&env, &caller)?;
         storage::set_caller_allowed(&env, &caller, true);
         storage::extend_instance(&env);
         events::caller_added(&env, &caller);
+        storage::next_admin_nonce(&env);
         Ok(())
     }
 
     /// Remove a caller from the allowlist of privileged callers.
     ///
     /// Only the administrator may remove callers.
-    pub fn remove_caller(env: Env, caller: Address) -> Result<(), Error> {
+    pub fn remove_caller(env: Env, caller: Address, nonce: u64) -> Result<(), Error> {
+        let expected = storage::get_admin_nonce(&env).saturating_add(1);
+        if nonce != expected {
+            return Err(Error::InvalidNonce);
+        }
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_caller_allowed(&env, &caller, false);
         storage::extend_instance(&env);
         events::caller_removed(&env, &caller);
+        storage::next_admin_nonce(&env);
         Ok(())
     }
 

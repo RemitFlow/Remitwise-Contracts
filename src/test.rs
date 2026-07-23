@@ -471,7 +471,7 @@ fn test_pause_blocks_create_transfer() {
     let expiry = s.env.ledger().timestamp() + 1_000;
 
     assert!(!s.client.is_paused());
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 
     let res = s
@@ -479,7 +479,7 @@ fn test_pause_blocks_create_transfer() {
         .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
     assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
 
-    s.client.unpause();
+    s.client.unpause(&1u64);
     assert!(!s.client.is_paused());
     let id = s
         .client
@@ -522,7 +522,7 @@ fn test_allowlist_gating() {
     assert_eq!(res, Err(Ok(crate::error::Error::CallerNotAllowed)));
 
     // add stranger to allowlist
-    s.client.add_caller(&stranger);
+    s.client.add_caller(&stranger, &1u64);
     assert!(s.client.is_caller_allowed(&stranger));
 
     // stranger should now be able to create transfer
@@ -535,7 +535,7 @@ fn test_allowlist_gating() {
     assert_eq!(id, 1);
 
     // remove stranger from allowlist
-    s.client.remove_caller(&stranger);
+    s.client.remove_caller(&stranger, &1u64);
     assert!(!s.client.is_caller_allowed(&stranger));
 
     // stranger should be blocked again
@@ -562,7 +562,7 @@ fn test_add_caller_requires_admin_auth() {
     env.set_auths(&[]);
 
     let caller = Address::generate(&env);
-    let res = client.try_add_caller(&caller);
+    let res = client.try_add_caller(&caller, &1u64);
     assert!(res.is_err());
 }
 
@@ -583,7 +583,7 @@ fn test_pause_requires_admin_auth() {
     env.set_auths(&[]);
 
     // Attempting to pause with non-admin should fail
-    let res = client.try_pause();
+    let res = client.try_pause(&1u64);
     // Should fail because non_admin doesn't have auth
     assert!(res.is_err());
 }
@@ -593,7 +593,7 @@ fn test_unpause_requires_admin_auth() {
     let s = setup();
 
     // Pause first (admin can do this)
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 
     // Create a non-admin context
@@ -605,11 +605,11 @@ fn test_unpause_requires_admin_auth() {
     let client = RemitFlowContractClient::new(&env, &contract_id);
     env.mock_all_auths();
     client.initialize(&admin, &token);
-    client.pause();
+    client.pause(&1u64);
     env.set_auths(&[]);
 
     // Attempting to unpause without proper auth should fail
-    let res = client.try_unpause();
+    let res = client.try_unpause(&1u64);
     assert!(res.is_err());
 }
 
@@ -632,7 +632,7 @@ fn test_pause_by_admin_succeeds() {
     let s = setup();
 
     assert!(!s.client.is_paused());
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 }
 
@@ -640,10 +640,10 @@ fn test_pause_by_admin_succeeds() {
 fn test_unpause_by_admin_succeeds() {
     let s = setup();
 
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 
-    s.client.unpause();
+    s.client.unpause(&1u64);
     assert!(!s.client.is_paused());
 }
 
@@ -659,11 +659,11 @@ fn test_non_admin_cannot_pause_twice() {
     let s = setup();
 
     // First pause by admin
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 
     // Try to pause again by admin (should succeed since admin always has auth in mock)
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 }
 
@@ -676,7 +676,7 @@ fn test_pause_and_unpause_state_changes() {
     assert!(!s.client.is_paused());
 
     // Pause and verify
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 
     // Verify transfers are blocked while paused
@@ -686,7 +686,7 @@ fn test_pause_and_unpause_state_changes() {
     assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
 
     // Unpause and verify
-    s.client.unpause();
+    s.client.unpause(&1u64);
     assert!(!s.client.is_paused());
 
     // Verify transfers work again
@@ -702,9 +702,9 @@ fn test_admin_guard_on_pause_with_mock_all_auths() {
 
     // With mock_all_auths(), admin auth is automatically approved
     assert!(!s.client.is_paused());
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
-    s.client.unpause();
+    s.client.unpause(&1u64);
     assert!(!s.client.is_paused());
 }
 
@@ -732,10 +732,10 @@ fn test_admin_operations_require_initialization() {
     let client = RemitFlowContractClient::new(&env, &contract_id);
 
     // Attempting admin operations before initialization should fail
-    let res = client.try_pause();
+    let res = client.try_pause(&1u64);
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 
-    let res = client.try_unpause();
+    let res = client.try_unpause(&1u64);
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 }
 
@@ -986,7 +986,7 @@ fn test_new_admin_can_exercise_admin_rights_after_transfer() {
 
     // New admin should be able to pause the contract
     assert_eq!(s.client.get_admin(), new_admin);
-    s.client.pause();
+    s.client.pause(&1u64);
     assert!(s.client.is_paused());
 }
 
@@ -1099,17 +1099,17 @@ fn test_persistent_allowedcaller_keys_are_unique_per_address() {
     assert!(!s.client.is_caller_allowed(&addr_b));
 
     // Allow addr_a only
-    s.client.add_caller(&addr_a);
+    s.client.add_caller(&addr_a, &1u64);
     assert!(s.client.is_caller_allowed(&addr_a));
     assert!(!s.client.is_caller_allowed(&addr_b));
 
     // Allow addr_b; addr_a remains allowed
-    s.client.add_caller(&addr_b);
+    s.client.add_caller(&addr_b, &1u64);
     assert!(s.client.is_caller_allowed(&addr_a));
     assert!(s.client.is_caller_allowed(&addr_b));
 
     // Remove addr_a; addr_b must remain allowed
-    s.client.remove_caller(&addr_a);
+    s.client.remove_caller(&addr_a, &1u64);
     assert!(!s.client.is_caller_allowed(&addr_a));
     assert!(s.client.is_caller_allowed(&addr_b));
 }
@@ -1131,7 +1131,7 @@ fn test_allowedcaller_and_transfer_keys_do_not_collide() {
 
     // Add a fresh caller to the allowlist
     let extra_caller = Address::generate(&s.env);
-    s.client.add_caller(&extra_caller);
+    s.client.add_caller(&extra_caller, &1u64);
 
     // Transfer record is unchanged
     let transfer = s.client.get_transfer(&id);
@@ -1154,15 +1154,15 @@ fn test_event_payload_contents() {
 
     // 1. Initial actions in setup():
     // client.initialize(&admin, &token) -> emits "init"
-    // client.add_caller(&from) -> emits "caller_added"
+    // client.add_caller(&from, &1u64) -> emits "caller_added"
 
     // 2. Perform caller removal and re-addition
-    s.client.remove_caller(&s.from); // emits "caller_removed"
-    s.client.add_caller(&s.from); // emits "caller_added"
+    s.client.remove_caller(&s.from, &1u64); // emits "caller_removed"
+    s.client.add_caller(&s.from, &1u64); // emits "caller_added"
 
     // 3. Perform pause and unpause
-    s.client.pause(); // emits "paused"
-    s.client.unpause(); // emits "unpaused"
+    s.client.pause(&1u64); // emits "paused"
+    s.client.unpause(&1u64); // emits "unpaused"
 
     // 4. Create and claim a transfer
     let expiry = s.env.ledger().timestamp() + 1_000;
@@ -1490,7 +1490,7 @@ fn test_add_caller_rejects_contract_address() {
     let s = setup();
     let contract_address = s.client.address.clone();
 
-    let res = s.client.try_add_caller(&contract_address);
+    let res = s.client.try_add_caller(&contract_address, &1u64);
     assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
     assert!(!s.client.is_caller_allowed(&contract_address));
 }

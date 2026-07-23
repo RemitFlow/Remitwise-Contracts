@@ -44,6 +44,8 @@ pub enum InstanceKey {
     /// Maintained incrementally on create/claim/cancel so that creating a
     /// transfer stays O(1) instead of rescanning every stored transfer.
     TotalEscrowed,
+    /// Current admin nonce for replay protection.
+    AdminNonce,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -159,7 +161,9 @@ pub fn get_total_escrowed(env: &Env) -> i128 {
 pub fn set_total_escrowed(env: &Env, value: i128) {
     env.storage()
         .instance()
-        .set(&InstanceKey::TotalEscrowed, &value);
+        .set(&InstanceKey::TotalEscrowed,
+    /// Current admin nonce for replay protection.
+    AdminNonce, &value);
 }
 
 // ---------------------------------------------------------------------------
@@ -219,4 +223,19 @@ pub fn increment_account_op_count(env: &Env, account: &Address) {
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+/// Get the current admin nonce.
+pub fn get_admin_nonce(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::AdminNonce)
+        .unwrap_or(0)
+}
+
+/// Increment and return the next admin nonce.
+pub fn next_admin_nonce(env: &Env) -> u64 {
+    let nonce = get_admin_nonce(env).saturating_add(1);
+    env.storage().instance().set(&InstanceKey::AdminNonce, &nonce);
+    nonce
 }
