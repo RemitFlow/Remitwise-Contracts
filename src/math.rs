@@ -206,3 +206,14 @@ mod tests {
         assert_eq!(calculate_fee(10_000, 0), Some(0));
     }
 }
+
+/// Checked conversion from u32 to i128.
+///
+/// Returns `None` if the value exceeds i128::MAX.
+pub fn u32_to_i128(value: u32) -> Option<i128> {
+    if value as u128 > i128::MAX as u128 {
+        None
+    } else {
+        Some(value as i128)
+    }
+}
