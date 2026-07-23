@@ -1524,3 +1524,174 @@ fn test_batch_operations_rejects_contract_address_via_create() {
     assert_eq!(result, Err(Ok(crate::error::Error::InvalidAddress)));
     assert_eq!(s.client.counter(), 0);
 }
+
+#[test]
+fn test_sequential_create_transfers_increments_id() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &100_000);
+
+    let expiry = s.future_expiry();
+    let count = 5;
+    let amount = 100;
+
+    for i in 1..=count {
+        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        assert_eq!(id, i as u64);
+        assert_eq!(s.client.counter(), i as u64);
+        assert_eq!(s.client.total_escrowed(), (i * amount) as i128);
+        assert_eq!(s.client.count_for_sender(&s.from), i as u64);
+    }
+}
+
+#[test]
+fn test_sequential_claims_updates_balances_and_escrow() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &100_000);
+
+    let expiry = s.future_expiry();
+    let count = 5;
+    let amount = 100;
+    let mut ids = vec![&s.env];
+
+    for _ in 0..count {
+        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        ids.push_back(id);
+    }
+
+    let token_client = s.token_client();
+    let initial_recipient_balance = token_client.balance(&s.recipient);
+    let initial_escrow = s.client.total_escrowed();
+
+    for i in 0..count {
+        let id = ids.get(i).unwrap();
+        s.client.claim_transfer(&id, &s.recipient);
+
+        assert_eq!(s.client.get_status(&id), Status::Claimed);
+        let expected_escrow = initial_escrow - ((i + 1) as i128 * amount);
+        assert_eq!(s.client.total_escrowed(), expected_escrow);
+
+        let expected_recipient_balance = initial_recipient_balance + ((i + 1) as i128 * amount);
+        assert_eq!(token_client.balance(&s.recipient), expected_recipient_balance);
+    }
+}
+
+#[test]
+fn test_sequential_cancellations_updates_balances_and_escrow() {
+    let s = setup();
+    let token_admin = StellarAssetClient::new(&s.env, &s.token);
+    token_admin.mint(&s.from, &100_000);
+
+    let expiry = s.future_expiry();
+    let count = 5;
+    let amount = 100;
+    let mut ids = vec![&s.env];
+
+    for _ in 0..count {
+        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        ids.push_back(id);
+    }
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+
+    let token_client = s.token_client();
+    let initial_sender_balance = token_client.balance(&s.from);
+    let initial_escrow = s.client.total_escrowed();
+
+    for i in 0..count {
+        let id = ids.get(i).unwrap();
+        s.client.cancel_transfer(&id, &s.from);
+
+        assert_eq!(s.client.get_status(&id), Status::Cancelled);
+        let expected_escrow = initial_escrow - ((i + 1) as i128 * amount);
+        assert_eq!(s.client.total_escrowed(), expected_escrow);
+
+        let expected_sender_balance = initial_sender_balance + ((i + 1) as i128 * amount);
+        assert_eq!(token_client.balance(&s.from), expected_sender_balance);
+    }
+}
+
+#[test]
+fn test_sequential_pause_and_unpause_state_consistency() {
+    let s = setup();
+    let expiry = s.future_expiry();
+
+    for _ in 0..3 {
+        s.client.pause();
+        assert!(s.client.is_paused());
+
+        let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+        assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
+
+        s.client.unpause();
+        assert!(!s.client.is_paused());
+
+        let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+        assert!(id > 0);
+    }
+}
+
+#[test]
+fn test_sequential_allowlist_management() {
+    let s = setup();
+    let addr1 = Address::generate(&s.env);
+    let addr2 = Address::generate(&s.env);
+    let addr3 = Address::generate(&s.env);
+
+    assert!(!s.client.is_caller_allowed(&addr1));
+    assert!(!s.client.is_caller_allowed(&addr2));
+    assert!(!s.client.is_caller_allowed(&addr3));
+
+    s.client.add_caller(&addr1);
+    assert!(s.client.is_caller_allowed(&addr1));
+    assert!(!s.client.is_caller_allowed(&addr2));
+    assert!(!s.client.is_caller_allowed(&addr3));
+
+    s.client.add_caller(&addr2);
+    assert!(s.client.is_caller_allowed(&addr1));
+    assert!(s.client.is_caller_allowed(&addr2));
+    assert!(!s.client.is_caller_allowed(&addr3));
+
+    s.client.add_caller(&addr3);
+    assert!(s.client.is_caller_allowed(&addr1));
+    assert!(s.client.is_caller_allowed(&addr2));
+    assert!(s.client.is_caller_allowed(&addr3));
+
+    s.client.remove_caller(&addr1);
+    assert!(!s.client.is_caller_allowed(&addr1));
+    assert!(s.client.is_caller_allowed(&addr2));
+    assert!(s.client.is_caller_allowed(&addr3));
+
+    s.client.remove_caller(&addr2);
+    assert!(!s.client.is_caller_allowed(&addr1));
+    assert!(!s.client.is_caller_allowed(&addr2));
+    assert!(s.client.is_caller_allowed(&addr3));
+
+    s.client.remove_caller(&addr3);
+    assert!(!s.client.is_caller_allowed(&addr1));
+    assert!(!s.client.is_caller_allowed(&addr2));
+    assert!(!s.client.is_caller_allowed(&addr3));
+}
+
+#[test]
+fn test_sequential_admin_rotation() {
+    let s = setup();
+
+    let admin1 = Address::generate(&s.env);
+    let admin2 = Address::generate(&s.env);
+    let admin3 = Address::generate(&s.env);
+
+    s.client.transfer_admin(&admin1);
+    s.client.accept_admin();
+    assert_eq!(s.client.get_admin(), admin1);
+
+    s.client.transfer_admin(&admin2);
+    s.client.accept_admin();
+    assert_eq!(s.client.get_admin(), admin2);
+
+    s.client.transfer_admin(&admin3);
+    s.client.accept_admin();
+    assert_eq!(s.client.get_admin(), admin3);
+}
+
