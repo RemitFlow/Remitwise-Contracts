@@ -1580,4 +1580,3 @@ fn test_getters_before_initialization() {
         Err(Ok(crate::error::Error::TransferNotFound))
     );
 }
-
