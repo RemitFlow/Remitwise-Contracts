@@ -161,9 +161,7 @@ pub fn get_total_escrowed(env: &Env) -> i128 {
 pub fn set_total_escrowed(env: &Env, value: i128) {
     env.storage()
         .instance()
-        .set(&InstanceKey::TotalEscrowed,
-    /// Current admin nonce for replay protection.
-    AdminNonce, &value);
+        .set(&InstanceKey::TotalEscrowed, &value);
 }
 
 // ---------------------------------------------------------------------------
