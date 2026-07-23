@@ -1536,7 +1536,9 @@ fn test_sequential_create_transfers_increments_id() {
     let amount = 100;
 
     for i in 1..=count {
-        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        let id = s
+            .client
+            .create_transfer(&s.from, &s.recipient, &amount, &expiry);
         assert_eq!(id, i as u64);
         assert_eq!(s.client.counter(), i as u64);
         assert_eq!(s.client.total_escrowed(), (i * amount) as i128);
@@ -1556,7 +1558,9 @@ fn test_sequential_claims_updates_balances_and_escrow() {
     let mut ids = vec![&s.env];
 
     for _ in 0..count {
-        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        let id = s
+            .client
+            .create_transfer(&s.from, &s.recipient, &amount, &expiry);
         ids.push_back(id);
     }
 
@@ -1573,7 +1577,10 @@ fn test_sequential_claims_updates_balances_and_escrow() {
         assert_eq!(s.client.total_escrowed(), expected_escrow);
 
         let expected_recipient_balance = initial_recipient_balance + ((i + 1) as i128 * amount);
-        assert_eq!(token_client.balance(&s.recipient), expected_recipient_balance);
+        assert_eq!(
+            token_client.balance(&s.recipient),
+            expected_recipient_balance
+        );
     }
 }
 
@@ -1589,7 +1596,9 @@ fn test_sequential_cancellations_updates_balances_and_escrow() {
     let mut ids = vec![&s.env];
 
     for _ in 0..count {
-        let id = s.client.create_transfer(&s.from, &s.recipient, &amount, &expiry);
+        let id = s
+            .client
+            .create_transfer(&s.from, &s.recipient, &amount, &expiry);
         ids.push_back(id);
     }
 
@@ -1621,13 +1630,17 @@ fn test_sequential_pause_and_unpause_state_consistency() {
         s.client.pause();
         assert!(s.client.is_paused());
 
-        let res = s.client.try_create_transfer(&s.from, &s.recipient, &100, &expiry);
+        let res = s
+            .client
+            .try_create_transfer(&s.from, &s.recipient, &100, &expiry);
         assert_eq!(res, Err(Ok(crate::error::Error::ContractPaused)));
 
         s.client.unpause();
         assert!(!s.client.is_paused());
 
-        let id = s.client.create_transfer(&s.from, &s.recipient, &100, &expiry);
+        let id = s
+            .client
+            .create_transfer(&s.from, &s.recipient, &100, &expiry);
         assert!(id > 0);
     }
 }
@@ -1694,4 +1707,3 @@ fn test_sequential_admin_rotation() {
     s.client.accept_admin();
     assert_eq!(s.client.get_admin(), admin3);
 }
-
