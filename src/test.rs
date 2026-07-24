@@ -2052,3 +2052,121 @@ fn test_getters_before_initialization() {
         Err(Ok(crate::error::Error::TransferNotFound))
     );
 }
+
+// ---------------------------------------------------------------------------
+// Storage TTL Expiry and Bump Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+#[allow(clippy::assertions_on_constants)]
+fn test_ttl_bump_constants_configured_correctly() {
+    assert_eq!(crate::storage::INSTANCE_BUMP_THRESHOLD, 518_400);
+    assert_eq!(crate::storage::INSTANCE_BUMP_AMOUNT, 535_680);
+    assert_eq!(crate::storage::PERSISTENT_BUMP_THRESHOLD, 518_400);
+    assert_eq!(crate::storage::PERSISTENT_BUMP_AMOUNT, 535_680);
+    assert!(crate::storage::INSTANCE_BUMP_AMOUNT >= crate::storage::INSTANCE_BUMP_THRESHOLD);
+    assert!(crate::storage::PERSISTENT_BUMP_AMOUNT >= crate::storage::PERSISTENT_BUMP_THRESHOLD);
+}
+
+#[test]
+fn test_instance_ttl_bumped_on_mutating_calls() {
+    let s = setup();
+
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.pause();
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.unpause();
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.create_default_transfer();
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_persistent_ttl_bumped_on_transfer_and_caller_writes() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+
+    s.client.add_caller(&caller);
+    s.env.as_contract(&s.client.address, || {
+        let caller_key = crate::storage::PersistentKey::AllowedCaller(caller.clone());
+        let ttl = s.env.storage().persistent().get_ttl(&caller_key);
+        assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+
+    let id = s.create_default_transfer();
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+
+    s.client.claim_transfer(&id, &s.recipient);
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_cancel_transfer_bumps_persistent_ttl() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    let expiry = s.future_expiry();
+
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    s.client.cancel_transfer(&id, &s.from);
+
+    s.env.as_contract(&s.client.address, || {
+        let transfer_key = crate::storage::PersistentKey::Transfer(id);
+        let ttl = s.env.storage().persistent().get_ttl(&transfer_key);
+        assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_admin_transfer_flow_bumps_instance_ttl() {
+    let s = setup();
+    let new_admin = Address::generate(&s.env);
+
+    s.client.transfer_admin(&new_admin);
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+
+    s.client.accept_admin();
+    s.env.as_contract(&s.client.address, || {
+        let ttl = s.env.storage().instance().get_ttl();
+        assert_eq!(ttl, crate::storage::INSTANCE_BUMP_AMOUNT);
+    });
+}
+
+#[test]
+fn test_storage_ttl_expiration_behavior() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.client.add_caller(&caller);
+
+    s.env.as_contract(&s.client.address, || {
+        let caller_key = crate::storage::PersistentKey::AllowedCaller(caller.clone());
+        assert!(s.env.storage().persistent().has(&caller_key));
+        let ttl = s.env.storage().persistent().get_ttl(&caller_key);
+        assert!(ttl > 0);
+    });
+}

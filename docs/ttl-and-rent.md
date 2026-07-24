@@ -38,6 +38,7 @@ Storage TTL bump behavior is validated in `src/test.rs` via automated tests:
 - **`test_persistent_ttl_bumped_on_transfer_and_caller_writes`**: Validates persistent TTL extensions when writing `AllowedCaller` and `Transfer` entries.
 - **`test_cancel_transfer_bumps_persistent_ttl`**: Verifies persistent TTL extensions when updating transfer status on cancellation.
 - **`test_admin_transfer_flow_bumps_instance_ttl`**: Confirms instance TTL bumps during two-step admin ownership transfers.
+- **`test_storage_ttl_expiration_behavior`**: Validates persistent storage lookup and positive TTL status for active records.
 
 See `docs/storage-model.md` and `src/storage.rs` for implementation details.
 
