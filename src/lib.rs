@@ -172,6 +172,21 @@ impl RemitFlowContract {
         storage::get_token(&env).ok_or(Error::NotInitialized)
     }
 
+    /// Return the token balances for a list of addresses in bulk.
+    ///
+    /// Queries the configured token contract for each address in `addresses`
+    /// and returns their current token balances in the same order. Returns
+    /// [`Error::NotInitialized`] if the contract has not been initialized.
+    pub fn get_balances(env: Env, addresses: Vec<Address>) -> Result<Vec<i128>, Error> {
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        let client = token::Client::new(&env, &token);
+        let mut balances = Vec::new(&env);
+        for address in addresses.iter() {
+            balances.push_back(client.balance(&address));
+        }
+        Ok(balances)
+    }
+
     /// Return the number of transfers created so far.
     pub fn counter(env: Env) -> u64 {
         storage::get_counter(&env)

@@ -23,7 +23,7 @@ with a `SorobanError: ResourceExhausted` — no partial state changes survive.
 | **Single-read** | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | O(1) | 1 storage read by id |
 | **Single-mutate** | `claim_transfer`, `cancel_transfer` | O(1) | 1 storage read, auth check, token transfer, 1 storage write |
 | **Create** | `create_transfer` | **O(n)** incurs internal call to `total_escrowed()` which scans all transfers |
-| **Paged read** | `get_transfers_paged` | O(n) capped at `MAX_PAGE_SIZE` (100) | Worst case: scan 100-ish ids, return up to 100 records |
+| **Paged read** | `get_transfers_paged`, `get_balances` | O(n) bounded by input addresses | Queries token balance for each address sequentially |
 | **Full-scan** | `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status` | **O(n) unbounded** — scan every recorded id from 1 to counter |
 | **Batch** | `batch_operations` | O(k × cost(op)) where `k` = operation count | Each individual operation has its own cost; internal calls (e.g. `Create` → `total_escrowed`) compound |
 
