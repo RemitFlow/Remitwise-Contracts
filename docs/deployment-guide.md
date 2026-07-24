@@ -144,6 +144,8 @@ your local build:
 ./scripts/verify-wasm-hash.sh testnet <CONTRACT_ID>
 ```
 
+For a full step-by-step verification process (WASM hash check, storage initialization, allowlist verification, smoke tests, and indexer alignment), see the [Post-Deploy Verification Checklist](post-deploy-verification.md).
+
 For a full walkthrough of the deterministic build settings, prerequisites, and
 troubleshooting steps, see the [Reproducible Builds guide](reproducible-build.md).
 
