@@ -24,7 +24,7 @@ mod test_utils;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
-use crate::types::{BatchOperation, BatchOperationResult, Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, ConfiguredLimits, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -532,5 +532,18 @@ impl RemitFlowContract {
     /// Returns `None` when no two-step transfer has been initiated.
     pub fn get_pending_admin(env: Env) -> Option<Address> {
         storage::get_pending_admin(&env)
+    }
+
+    /// Return the contract's configured operational limits.
+    ///
+    /// Exposes system constants including maximum single transfer amount,
+    /// maximum expiry window, global total escrow cap, and maximum page size.
+    pub fn get_limits(_env: Env) -> ConfiguredLimits {
+        ConfiguredLimits {
+            max_amount: MAX_AMOUNT,
+            max_expiry_window: MAX_EXPIRY_WINDOW,
+            max_total_escrowed: MAX_TOTAL_ESCROWED,
+            max_page_size: MAX_PAGE_SIZE,
+        }
     }
 }

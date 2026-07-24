@@ -47,6 +47,9 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_get_transfers_paged_respects_limit_and_start**: Validates pagination functionality
 - **test_is_expired_reflects_ledger_time**: Verifies expiry status matches ledger time
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
+- **test_get_limits_returns_configured_constants**: Confirms `get_limits` returns configured bounds (`MAX_AMOUNT`, `MAX_EXPIRY_WINDOW`, `MAX_TOTAL_ESCROWED`, `MAX_PAGE_SIZE`)
+- **test_get_limits_works_uninitialized**: Verifies `get_limits` can be queried before contract initialization
+
 
 ### Event Validation Tests
 - **test_event_payload_contents**: Verifies that the topics and data payload contents are correct and follow schema definitions for all 10 types of events (`init`, `caller_added`, `caller_removed`, `paused`, `unpaused`, `created`, `claimed`, `cancelled`, `admin_transfer_started`, and `admin_transfer_completed`).

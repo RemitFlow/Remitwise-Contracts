@@ -73,3 +73,17 @@ pub struct Transfer {
     /// Current lifecycle status of the transfer.
     pub status: Status,
 }
+
+/// Configured resource and operation limits for the contract.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfiguredLimits {
+    /// Largest token amount accepted for a single escrowed transfer.
+    pub max_amount: i128,
+    /// Maximum allowed distance, in seconds, between now and a transfer's expiry.
+    pub max_expiry_window: u64,
+    /// Global cap on the total escrowed amount.
+    pub max_total_escrowed: i128,
+    /// Maximum number of records returned by a paginated transfer query.
+    pub max_page_size: u32,
+}

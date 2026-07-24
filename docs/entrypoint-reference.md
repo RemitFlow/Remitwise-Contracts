@@ -81,3 +81,13 @@ Returns a bounded page of transfer records ordered by ascending transfer id.
 * **Next page**: If a full page is returned, pass the last returned transfer
   id plus one as the next `start_id`
 
+## Operational Configuration & Resource Queries
+
+### `get_limits() -> ConfiguredLimits`
+
+Returns the contract's configured operational limits.
+
+* **Authorization**: None (public view, callable pre/post-initialization)
+* **Returns**: [`ConfiguredLimits`](data-types.md#configuredlimits) containing `max_amount`, `max_expiry_window`, `max_total_escrowed`, and `max_page_size`.
+
+
