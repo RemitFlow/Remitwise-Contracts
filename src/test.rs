@@ -1789,3 +1789,75 @@ fn test_sequential_admin_rotation() {
     s.client.accept_admin();
     assert_eq!(s.client.get_admin(), admin3);
 }
+// --- Event topic stability tests ---
+
+#[test]
+fn test_event_topics_stability() {
+    let s = setup();
+
+    // 1. caller_removed and re-added
+    s.client.remove_caller(&s.from);
+    s.client.add_caller(&s.from);
+
+    // 2. pause & unpause
+    s.client.pause();
+    s.client.unpause();
+
+    // 3. created & claimed
+    let expiry = s.env.ledger().timestamp() + 1_000;
+    let id1 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    s.client.claim_transfer(&id1, &s.recipient);
+
+    // 4. created & cancelled
+    let id2 = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    s.env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    s.client.cancel_transfer(&id2, &s.from);
+
+    // 5. transfer_admin & accept_admin
+    let new_admin = Address::generate(&s.env);
+    s.client.transfer_admin(&new_admin);
+    s.client.accept_admin();
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+
+    let expected_topics: &[(&str, u32)] = &[
+        ("init", 1),
+        ("caller_added", 1),
+        ("caller_removed", 1),
+        ("caller_added", 1),
+        ("paused", 1),
+        ("unpaused", 1),
+        ("created", 2),
+        ("claimed", 2),
+        ("created", 2),
+        ("cancelled", 2),
+        ("admin_transfer_started", 1),
+        ("admin_transfer_completed", 1),
+    ];
+
+    assert_eq!(contract_events.len(), expected_topics.len());
+
+    for (idx, (expected_name, expected_topic_count)) in expected_topics.iter().enumerate() {
+        let event = &contract_events[idx];
+        let topics = &event.1;
+        assert_eq!(
+            topics.len(),
+            *expected_topic_count,
+            "Topic count mismatch for event {}",
+            expected_name
+        );
+        let first_topic: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(
+            first_topic,
+            soroban_sdk::Symbol::new(&s.env, expected_name),
+            "Topic symbol mismatch for event {}",
+            expected_name
+        );
+    }
+}
