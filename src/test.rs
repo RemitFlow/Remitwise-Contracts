@@ -1996,3 +1996,59 @@ fn test_event_topics_stability() {
         );
     }
 }
+
+#[test]
+fn test_getters_before_initialization() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.try_get_admin(),
+        Err(Ok(crate::error::Error::NotInitialized))
+    );
+
+    assert_eq!(
+        client.try_get_token(),
+        Err(Ok(crate::error::Error::NotInitialized))
+    );
+
+    assert!(client.get_pending_admin().is_none());
+
+    assert_eq!(client.counter(), 0);
+
+    assert!(!client.is_paused());
+
+    assert_eq!(client.total_escrowed(), 0);
+
+    let paged = client.get_transfers_paged(&1, &10);
+    assert_eq!(paged.len(), 0);
+
+    let dummy_addr = Address::generate(&env);
+    assert!(!client.is_caller_allowed(&dummy_addr));
+
+    assert_eq!(client.count_for_sender(&dummy_addr), 0);
+
+    assert_eq!(client.count_for_recipient(&dummy_addr), 0);
+
+    assert_eq!(client.count_by_status(&Status::Pending), 0);
+    assert_eq!(client.count_by_status(&Status::Claimed), 0);
+    assert_eq!(client.count_by_status(&Status::Cancelled), 0);
+
+    assert_eq!(
+        client.try_get_transfer(&1),
+        Err(Ok(crate::error::Error::TransferNotFound))
+    );
+
+    assert!(!client.transfer_exists(&1));
+
+    assert_eq!(
+        client.try_get_status(&1),
+        Err(Ok(crate::error::Error::TransferNotFound))
+    );
+
+    assert_eq!(
+        client.try_is_expired(&1),
+        Err(Ok(crate::error::Error::TransferNotFound))
+    );
+}
