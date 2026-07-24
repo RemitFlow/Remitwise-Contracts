@@ -52,13 +52,33 @@ Tests verify that admin-only operations:
 #### Initialization Guard
 ```rust
 #[test]
-fn test_initialize_requires_admin_auth() {
-    // Verifies initialize() checks admin.require_auth()
+fn test_initialize_twice_fails() {
+    // Ensures AlreadyInitialized prevents re-initialization with same parameters
 }
 
 #[test]
-fn test_initialize_only_once_enforces_admin_guard() {
-    // Ensures AlreadyInitialized prevents re-initialization
+fn test_reinitialize_with_different_admin_and_token_fails() {
+    // Ensures re-initialization fails when supplying different admin/token parameters
+}
+
+#[test]
+fn test_reinitialize_after_admin_transfer_fails() {
+    // Verifies re-initialization attempts fail after 2-step admin transfer completes
+}
+
+#[test]
+fn test_reinitialize_after_active_transfers_and_state_changes_fails() {
+    // Verifies re-initialization attempts fail after transfer creation and pause state changes
+}
+
+#[test]
+fn test_reinitialize_by_unauthorized_caller_fails() {
+    // Ensures unauthorized callers receive AlreadyInitialized on already initialized contracts
+}
+
+#[test]
+fn test_reinitialize_does_not_emit_init_event() {
+    // Ensures failed re-initialization attempts do not emit duplicate init events
 }
 ```
 

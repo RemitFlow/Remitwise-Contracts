@@ -14,6 +14,11 @@ The contract includes comprehensive unit tests organized by functionality:
 ### Initialization Tests
 - **test_initialize_sets_admin_and_token**: Verifies admin and token are correctly stored during initialization
 - **test_initialize_twice_fails**: Ensures contract cannot be re-initialized after first setup
+- **test_reinitialize_with_different_admin_and_token_fails**: Verifies re-initialization with new admin and token fails and preserves state
+- **test_reinitialize_after_admin_transfer_fails**: Verifies re-initialization fails after admin rotation (2-step admin transfer)
+- **test_reinitialize_after_active_transfers_and_state_changes_fails**: Ensures re-initialization fails after transfers and pause state changes without mutating existing state
+- **test_reinitialize_by_unauthorized_caller_fails**: Verifies unauthorized third party cannot re-initialize contract
+- **test_reinitialize_does_not_emit_init_event**: Verifies failed re-initialization emits no duplicate init event
 
 ### Transfer Creation Tests
 - **test_create_transfer_moves_funds_to_escrow**: Validates token movement into escrow during transfer creation
