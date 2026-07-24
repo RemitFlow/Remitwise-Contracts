@@ -66,6 +66,25 @@ Removes an address from the privileged callers allowlist.
 Queries whether the given address is authorized on the privileged callers allowlist.
 * **Authorization**: None (Public view)
 
+## Supply Accounting
+
+### `check_supply_invariant() -> Result<(), Error>`
+
+Verifies that the contract's actual token balance can still cover its
+internally tracked `TotalEscrowed` liability.
+
+* **Authorization**: None (public view)
+* **Effect**: None; performs no writes. Returns `Ok(())` when
+  `token_balance(contract_address) >= TotalEscrowed`.
+* **Errors**: `NotInitialized` if the contract is not initialized;
+  `SupplyInvariantViolation` if the balance has fallen below the tracked
+  liability.
+* This is the same check that runs automatically after every entrypoint
+  that moves escrowed funds (`create_transfer`, `claim_transfer`,
+  `cancel_transfer`); calling it directly lets off-chain monitoring audit
+  solvency independently. See [Invariants](./invariants.md) for the
+  rationale.
+
 ## Transfer Queries
 
 ### `get_transfers_paged(start_id: u64, limit: u32) -> Vec<Transfer>`
