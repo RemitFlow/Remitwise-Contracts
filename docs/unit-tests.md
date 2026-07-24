@@ -73,6 +73,8 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_persistent_ttl_bumped_on_transfer_and_caller_writes**: Validates that adding callers, creating transfers, and claiming transfers refresh persistent TTLs for `PersistentKey::AllowedCaller` and `PersistentKey::Transfer`
 - **test_cancel_transfer_bumps_persistent_ttl**: Confirms that cancelling an expired transfer extends persistent TTL for the transfer record
 - **test_admin_transfer_flow_bumps_instance_ttl**: Verifies that `transfer_admin` and `accept_admin` refresh instance TTL
+- **test_storage_ttl_expiration_behavior**: Validates persistent storage lookup and positive TTL status for active records
+
 
 ### Pause/Unpause Tests
 - **test_pause_blocks_create_transfer**: Verifies pause prevents new transfer creation

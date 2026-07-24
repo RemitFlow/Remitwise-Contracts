@@ -132,6 +132,11 @@ fn test_cancel_transfer_bumps_persistent_ttl() {
 fn test_admin_transfer_flow_bumps_instance_ttl() {
     // Verifies instance TTL bumps during 2-step admin ownership transfer
 }
+
+#[test]
+fn test_storage_ttl_expiration_behavior() {
+    // Validates persistent storage lookup and positive TTL status for active records
+}
 ```
 
 
