@@ -12,7 +12,7 @@ meaning, and the entrypoints that can produce it.
 | Code | Variant | Description | Returned By |
 |------|---------|-------------|-------------|
 | 1 | `AlreadyInitialized` | The contract has already been initialised with an admin and token address. Second calls to `initialize` are rejected. | `initialize` |
-| 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller` |
+| 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller` |
 | 3 | `TransferNotFound` | No record exists for the supplied transfer `id`. Either the id was never created or it was assigned to a transfer that was purged. | `get_transfer`, `get_status`, `transfer_exists`, `is_expired`, `claim_transfer`, `cancel_transfer` |
 | 4 | `InvalidAmount` | The supplied transfer `amount` is not strictly positive (zero or negative). | `create_transfer` |
 | 5 | `InvalidExpiry` | The supplied `expiry` timestamp is not in the future — it must be strictly greater than the current ledger timestamp. | `create_transfer` |
@@ -38,7 +38,7 @@ meaning, and the entrypoints that can produce it.
 | Entrypoint | Possible Errors |
 |---|---|
 | `initialize` | `AlreadyInitialized` (1)*, `InvalidAddress` (18) |
-| `get_admin`, `get_token`, `get_balances` | `NotInitialized` (2) |
+| `get_admin`, `get_token`, `get_initialized_at`, `get_balances` | `NotInitialized` (2) |
 | `counter`, `is_paused`, `is_caller_allowed` | None† |
 | `pause`, `unpause` | `NotInitialized` (2) |
 | `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |

@@ -18,7 +18,7 @@ with a `SorobanError: ResourceExhausted` — no partial state changes survive.
 
 | Category | Entrypoints | Complexity | Notes |
 |---|---|---|---|
-| **Constant-time** | `initialize`, `get_admin`, `get_token`, `counter` | O(1) | 1–2 storage reads, no loops |
+| **Constant-time** | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `counter` | O(1) | 1–2 storage reads, no loops |
 | **Admin actions** | `pause`, `unpause`, `add_caller`, `remove_caller` | O(1) | Auth check + 1 storage write + event |
 | **Single-read** | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | O(1) | 1 storage read by id |
 | **Single-mutate** | `claim_transfer`, `cancel_transfer` | O(1) | 1 storage read, auth check, token transfer, 1 storage write |
@@ -34,7 +34,7 @@ with a `SorobanError: ResourceExhausted` — no partial state changes survive.
 These entrypoints execute a deterministic, small number of operations and will
 **never** exhaust the instruction budget on their own:
 
-- `get_admin`, `get_token`, `counter`, `is_paused`
+- `get_admin`, `get_token`, `get_initialized_at`, `counter`, `is_paused`
 - `get_transfer(id)`, `transfer_exists(id)`, `get_status(id)`, `is_expired(id)`
 - `claim_transfer(id, recipient)`, `cancel_transfer(id, from)`
 - `pause()`, `unpause()`, `add_caller(caller)`, `remove_caller(caller)`

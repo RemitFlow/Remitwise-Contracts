@@ -136,6 +136,33 @@ fn test_initialize_sets_admin_and_token() {
 }
 
 #[test]
+fn test_get_initialized_at_returns_ledger_timestamp_at_init() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 12_345);
+
+    let admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token);
+
+    assert_eq!(client.get_initialized_at(), 12_345);
+}
+
+#[test]
+fn test_get_initialized_at_is_unaffected_by_later_activity() {
+    let s = setup();
+    let initialized_at = s.client.get_initialized_at();
+
+    s.env.ledger().with_mut(|l| l.timestamp += 5_000);
+    s.create_default_transfer();
+
+    assert_eq!(s.client.get_initialized_at(), initialized_at);
+}
+
+#[test]
 fn test_common_setup_initializes_and_funds_contract() {
     let s = setup();
 
@@ -2010,6 +2037,11 @@ fn test_getters_before_initialization() {
 
     assert_eq!(
         client.try_get_token(),
+        Err(Ok(crate::error::Error::NotInitialized))
+    );
+
+    assert_eq!(
+        client.try_get_initialized_at(),
         Err(Ok(crate::error::Error::NotInitialized))
     );
 

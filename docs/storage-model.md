@@ -56,6 +56,7 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 | `Token` | `Address` | Soroban token contract used for all escrow movements |
 | `Counter` | `u64` | Monotonically increasing id issued to the next transfer |
 | `Paused` | `bool` | When `true`, `create_transfer` is blocked |
+| `InitializedAt` | `u64` | Ledger timestamp at which `initialize` was called |
 
 ### `PersistentKey` — persistent storage
 

@@ -454,6 +454,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "InitializedAt"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Paused"
                             }
                           ]

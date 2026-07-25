@@ -22,6 +22,10 @@ This document provides a step-by-step checklist to verify that a deployed RemitF
   ```sh
   stellar contract invoke --id <CONTRACT_ID> --network <NETWORK> -- get_token
   ```
+- [ ] **Initialization Timestamp Check**: Invoke `get_initialized_at` and confirm the returned ledger timestamp is close to the deployment time:
+  ```sh
+  stellar contract invoke --id <CONTRACT_ID> --network <NETWORK> -- get_initialized_at
+  ```
 - [ ] **Transfer Counter Initialization**: Invoke `counter` to verify the counter starts at `0`.
 - [ ] **Pause State Check**: Invoke `is_paused` to confirm initial pause status is `false`.
 - [ ] **Re-initialization Rejection**: Attempt calling `initialize` a second time and verify it returns `Error::AlreadyInitialized`.

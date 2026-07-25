@@ -8,6 +8,10 @@ The `initialize` entrypoint sets up the core contract parameters:
 - **Admin (`Address`)**: Designated administrator key with privilege to manage contract pause state and allowlists.
 - **Token (`Address`)**: Designated Stellar Asset Contract token address used for all escrowed transfers.
 
+It also records the ledger timestamp of the call, retrievable afterward via
+`get_initialized_at`. This value is set once and never updated by any
+subsequent entrypoint.
+
 ## Single-Initialization Invariant
 
 To prevent contract takeover or state corruption:

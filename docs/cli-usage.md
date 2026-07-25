@@ -147,6 +147,9 @@ stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- get_pending_admi
 # Get token address
 stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- get_token
 
+# Get initialization timestamp
+stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- get_initialized_at
+
 # Check if paused
 stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- is_paused
 
