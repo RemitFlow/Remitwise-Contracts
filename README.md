@@ -1,3 +1,21 @@
+## Event Schemas
+
+RemitFlow emits Soroban contract events with stable symbol topics so indexers can track initialization, allowlist changes, pause state changes, transfer lifecycle transitions, and admin handovers. The full event reference lives in [docs/event-reference.md](docs/event-reference.md); the README summary below mirrors `src/events.rs` for quick integration checks.
+
+| Event | Topics | Payload | Emitted when |
+| --- | --- | --- | --- |
+| `init` | `("init",)` | `(admin: Address, token: Address)` | The contract is initialized with its administrator and token contract. |
+| `caller_added` | `("caller_added",)` | `caller: Address` | The admin adds an address to the privileged caller allowlist. |
+| `caller_removed` | `("caller_removed",)` | `caller: Address` | The admin removes an address from the privileged caller allowlist. |
+| `paused` | `("paused",)` | `admin: Address` | The admin pauses state-changing transfer operations. |
+| `unpaused` | `("unpaused",)` | `admin: Address` | The admin unpauses state-changing transfer operations. |
+| `created` | `("created", id: u64)` | `(from: Address, recipient: Address, amount: i128, expiry: u64)` | A sender creates a transfer and escrowed funds move into the contract. |
+| `claimed` | `("claimed", id: u64)` | `(recipient: Address, amount: i128)` | The recipient claims an active transfer. |
+| `cancelled` | `("cancelled", id: u64)` | `(from: Address, amount: i128)` | The sender cancels an expired transfer and receives the refund. |
+| `admin_transfer_started` | `("admin_transfer_started",)` | `(current_admin: Address, pending_admin: Address)` | The current admin nominates a pending administrator. |
+| `admin_transfer_completed` | `("admin_transfer_completed",)` | `(old_admin: Address, new_admin: Address)` | The pending administrator accepts ownership. |
+
+Indexer implementations should treat the first topic item as the event symbol. Transfer lifecycle events also include the transfer id as the second topic item, which allows consumers to query all events for a single transfer without decoding every payload.
 # RemitFlow Contract
 
 RemitFlow is a cross-border remittance escrow smart contract for the
