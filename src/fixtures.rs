@@ -244,7 +244,7 @@ mod tests {
     fn builder_custom_balance_is_minted() {
         let (_fixture, _env, _client) =
             FixtureBuilder::new().with_sender_balance(50_000).build();
-        // Balance minted — transfer was created, so balance decreased
+        // Balance minted - transfer was created, so balance decreased
         let transfer = _client.get_transfer(&1);
         assert_eq!(transfer.amount, DEFAULT_TRANSFER_AMOUNT);
     }
