@@ -46,6 +46,13 @@ Returns the currently nominated pending admin address.
 * **Authorization**: None (public view)
 * Returns `None` when no transfer is in progress.
 
+### `get_initialized_at() -> Result<u64, Error>`
+Returns the ledger timestamp at which `initialize` was called.
+* **Authorization**: None (public view)
+* **Returns**: `u64` ledger timestamp, set once during `initialize` and never
+  updated afterward.
+* **Errors**: `NotInitialized` if the contract is not initialized.
+
 ### `get_balances(addresses: Vec<Address>) -> Result<Vec<i128>, Error>`
 Bulk-read token balances for a list of addresses in a single contract query.
 * **Authorization**: None (public view)

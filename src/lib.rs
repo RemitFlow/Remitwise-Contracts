@@ -157,6 +157,7 @@ impl RemitFlowContract {
         storage::set_admin(&env, &admin);
         storage::set_token(&env, &token);
         storage::set_counter(&env, 0);
+        storage::set_initialized_at(&env, env.ledger().timestamp());
         storage::extend_instance(&env);
         events::init(&env, &admin, &token);
         Ok(())
@@ -170,6 +171,11 @@ impl RemitFlowContract {
     /// Return the configured token contract address.
     pub fn get_token(env: Env) -> Result<Address, Error> {
         storage::get_token(&env).ok_or(Error::NotInitialized)
+    }
+
+    /// Return the ledger timestamp at which the contract was initialized.
+    pub fn get_initialized_at(env: Env) -> Result<u64, Error> {
+        storage::get_initialized_at(&env).ok_or(Error::NotInitialized)
     }
 
     /// Return the token balances for a list of addresses in bulk.

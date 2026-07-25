@@ -44,6 +44,8 @@ pub enum InstanceKey {
     /// Maintained incrementally on create/claim/cancel so that creating a
     /// transfer stays O(1) instead of rescanning every stored transfer.
     TotalEscrowed,
+    /// Ledger timestamp at which `initialize` was called.
+    InitializedAt,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -119,6 +121,18 @@ pub fn set_token(env: &Env, token: &Address) {
 /// Read the token contract address from instance storage.
 pub fn get_token(env: &Env) -> Option<Address> {
     env.storage().instance().get(&InstanceKey::Token)
+}
+
+/// Store the ledger timestamp at which the contract was initialized.
+pub fn set_initialized_at(env: &Env, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::InitializedAt, &timestamp);
+}
+
+/// Read the ledger timestamp at which the contract was initialized, if any.
+pub fn get_initialized_at(env: &Env) -> Option<u64> {
+    env.storage().instance().get(&InstanceKey::InitializedAt)
 }
 
 /// Read the current transfer counter, defaulting to zero when unset.
