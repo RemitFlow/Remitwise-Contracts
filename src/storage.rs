@@ -46,6 +46,7 @@ pub enum InstanceKey {
     TotalEscrowed,
     /// Ledger timestamp at which `initialize` was called.
     InitializedAt,
+    LastPrivilegedCall,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -127,7 +128,8 @@ pub fn get_token(env: &Env) -> Option<Address> {
 pub fn set_initialized_at(env: &Env, timestamp: u64) {
     env.storage()
         .instance()
-        .set(&InstanceKey::InitializedAt, &timestamp);
+        .set(&InstanceKey::InitializedAt,
+    LastPrivilegedCall, &timestamp);
 }
 
 /// Read the ledger timestamp at which the contract was initialized, if any.
@@ -233,4 +235,19 @@ pub fn increment_account_op_count(env: &Env, account: &Address) {
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+/// Read the timestamp of the last privileged call (0 when unset).
+pub fn get_last_privileged_call(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get::<InstanceKey, u64>(&InstanceKey::LastPrivilegedCall)
+        .unwrap_or(0)
+}
+
+/// Persist the timestamp of the last privileged call.
+pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::LastPrivilegedCall, &timestamp);
 }

@@ -53,6 +53,9 @@ pub const MAX_ACCOUNT_OPS: u32 = 10_000;
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
 /// Maximum number of records returned by a paginated transfer query.
+/// Minimum cooldown in seconds between privileged administrative calls.
+pub const PRIVILEGED_COOLDOWN: u64 = 300; // 5 minutes
+
 pub const MAX_PAGE_SIZE: u32 = 100;
 
 /// Reject an address that resolves to the contract's own address.
@@ -65,6 +68,24 @@ pub const MAX_PAGE_SIZE: u32 = 100;
 /// would silently misconfigure the contract or lock funds and privileges out
 /// of reach, since the contract cannot `require_auth` on its own behalf from
 /// a top-level call.
+
+/// Reject the call if a privileged operation was executed less than
+/// [PRIVILEGED_COOLDOWN] seconds ago.
+fn require_cooldown(env: &Env) -> Result<(), Error> {
+    let last = storage::get_last_privileged_call(env);
+    if last > 0 {
+        let now = env.ledger().timestamp();
+        if now.saturating_sub(last) < PRIVILEGED_COOLDOWN {
+            return Err(Error::CooldownNotElapsed);
+        }
+    }
+    Ok(())
+}
+
+/// Record that a privileged call just executed at the current ledger time.
+fn record_privileged_call(env: &Env) {
+    storage::set_last_privileged_call(env, env.ledger().timestamp());
+}
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
         return Err(Error::InvalidAddress);
@@ -204,9 +225,11 @@ impl RemitFlowContract {
     /// contract. Claims and cancellations of existing transfers remain
     /// available while paused.
     pub fn pause(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, true);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::paused(&env, &admin);
         Ok(())
@@ -217,9 +240,11 @@ impl RemitFlowContract {
     /// The configured admin address is the only authority that may unpause the
     /// contract.
     pub fn unpause(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, false);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::unpaused(&env, &admin);
         Ok(())
@@ -528,10 +553,12 @@ impl RemitFlowContract {
     /// Only the administrator may add callers. `caller` may not be the
     /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn add_caller(env: Env, caller: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         require_external_address(&env, &caller)?;
         storage::set_caller_allowed(&env, &caller, true);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::caller_added(&env, &caller);
         Ok(())
@@ -541,9 +568,11 @@ impl RemitFlowContract {
     ///
     /// Only the administrator may remove callers.
     pub fn remove_caller(env: Env, caller: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_caller_allowed(&env, &caller, false);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::caller_removed(&env, &caller);
         Ok(())
@@ -562,10 +591,12 @@ impl RemitFlowContract {
     /// previously nominated pending admin. `new_admin` may not be the
     /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         require_external_address(&env, &new_admin)?;
         storage::set_pending_admin(&env, &new_admin);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::admin_transfer_started(&env, &admin, &new_admin);
         Ok(())
@@ -578,11 +609,13 @@ impl RemitFlowContract {
     /// slot is cleared. Returns [`Error::NoPendingAdmin`] if no transfer has
     /// been initiated.
     pub fn accept_admin(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let pending = storage::get_pending_admin(&env).ok_or(Error::NoPendingAdmin)?;
         pending.require_auth();
         let old_admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         storage::set_admin(&env, &pending);
         storage::clear_pending_admin(&env);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::admin_transfer_completed(&env, &old_admin, &pending);
         Ok(())
@@ -608,3 +641,5 @@ impl RemitFlowContract {
         }
     }
 }
+
+
