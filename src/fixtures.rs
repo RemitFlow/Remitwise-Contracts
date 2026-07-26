@@ -9,10 +9,8 @@
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::Vec;
-use soroban_sdk::vec;
 use soroban_sdk::{Address, Env};
 
-use crate::types::Status;
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
 use super::test_utils::{
@@ -40,10 +38,10 @@ impl FixtureBuilder {
         env.mock_all_auths();
 
         Self {
-            env,
             admin: Address::generate(&env),
             from: Address::generate(&env),
             recipient: Address::generate(&env),
+            env,
             sender_balance: DEFAULT_SENDER_BALANCE,
             transfer_amount: DEFAULT_TRANSFER_AMOUNT,
             expiry_offset: DEFAULT_EXPIRY_OFFSET,
@@ -140,21 +138,24 @@ impl FixtureBuilder {
 
         if self.claim_transfer {
             for id in transfer_ids.iter() {
-                self.env.ledger().set_timestamp(
-                    self.env.ledger().timestamp() + self.expiry_offset - 100,
-                );
+                self.env
+                    .ledger()
+                    .set_timestamp(self.env.ledger().timestamp() + self.expiry_offset - 100);
                 client.claim_transfer(&id, &self.recipient);
             }
         }
 
         if self.cancel_transfer {
             for id in transfer_ids.iter() {
-                self.env.ledger().set_timestamp(
-                    self.env.ledger().timestamp() + self.expiry_offset + 1,
-                );
+                self.env
+                    .ledger()
+                    .set_timestamp(self.env.ledger().timestamp() + self.expiry_offset + 1);
                 client.cancel_transfer(&id, &self.from);
             }
         }
+
+        let env_for_tuple = self.env.clone();
+        let client_for_tuple = RemitFlowContractClient::new(&env_for_tuple, &contract_id);
 
         let fixture = TestFixture {
             env: self.env,
@@ -165,7 +166,7 @@ impl FixtureBuilder {
             recipient: self.recipient,
         };
 
-        (fixture, self.env, client)
+        (fixture, env_for_tuple, client_for_tuple)
     }
 }
 
@@ -191,39 +192,34 @@ mod tests {
 
     #[test]
     fn builder_with_custom_amount_respects_value() {
-        let (_fixture, _env, client) =
-            FixtureBuilder::new().with_transfer_amount(999).build();
+        let (_fixture, _env, client) = FixtureBuilder::new().with_transfer_amount(999).build();
         let transfer = client.get_transfer(&1);
         assert_eq!(transfer.amount, 999);
     }
 
     #[test]
     fn builder_without_transfer_has_empty_counter() {
-        let (_fixture, _env, client) =
-            FixtureBuilder::new().without_transfer().build();
+        let (_fixture, _env, client) = FixtureBuilder::new().without_transfer().build();
         assert_eq!(client.counter(), 0);
     }
 
     #[test]
     fn builder_claimed_sets_status_to_claimed() {
-        let (_fixture, _env, client) =
-            FixtureBuilder::new().claimed().build();
+        let (_fixture, _env, client) = FixtureBuilder::new().claimed().build();
         let transfer = client.get_transfer(&1);
         assert_eq!(transfer.status, Status::Claimed);
     }
 
     #[test]
     fn builder_cancelled_sets_status_to_cancelled() {
-        let (_fixture, _env, client) =
-            FixtureBuilder::new().cancelled().build();
+        let (_fixture, _env, client) = FixtureBuilder::new().cancelled().build();
         let transfer = client.get_transfer(&1);
         assert_eq!(transfer.status, Status::Cancelled);
     }
 
     #[test]
     fn builder_paused_rejects_new_transfer() {
-        let (fixture, _env, client) =
-            FixtureBuilder::new().paused().without_transfer().build();
+        let (fixture, _env, client) = FixtureBuilder::new().paused().without_transfer().build();
         let result = client.try_create_transfer(
             &fixture.from,
             &fixture.recipient,
@@ -235,8 +231,7 @@ mod tests {
 
     #[test]
     fn builder_multiple_transfers_creates_sequential_ids() {
-        let (_fixture, _env, client) =
-            FixtureBuilder::new().with_num_transfers(5).build();
+        let (_fixture, _env, client) = FixtureBuilder::new().with_num_transfers(5).build();
         assert_eq!(client.counter(), 5);
         assert!(client.transfer_exists(&1));
         assert!(client.transfer_exists(&5));
@@ -244,9 +239,7 @@ mod tests {
 
     #[test]
     fn builder_custom_balance_is_minted() {
-        let (_fixture, _env, _client) =
-            FixtureBuilder::new().with_sender_balance(50_000).build();
-        // Balance minted - transfer was created, so balance decreased
+        let (_fixture, _env, _client) = FixtureBuilder::new().with_sender_balance(50_000).build();
         let transfer = _client.get_transfer(&1);
         assert_eq!(transfer.amount, DEFAULT_TRANSFER_AMOUNT);
     }
@@ -265,6 +258,3 @@ mod tests {
         assert_eq!(transfer.recipient, recipient);
     }
 }
-
-
-
