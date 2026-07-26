@@ -7,7 +7,9 @@
 //! calling .build() to obtain a ready-to-use TestFixture.
 
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::Vec;
+use soroban_sdk::vec;
 use soroban_sdk::{Address, Env};
 
 use crate::types::Status;
@@ -263,4 +265,6 @@ mod tests {
         assert_eq!(transfer.recipient, recipient);
     }
 }
+
+
 
