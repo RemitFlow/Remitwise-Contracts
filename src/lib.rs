@@ -607,4 +607,44 @@ impl RemitFlowContract {
             max_page_size: MAX_PAGE_SIZE,
         }
     }
+
+    /// Sweeps an expired transfer, returning the escrowed funds to the original sender.
+    ///
+    /// Permissionless entrypoint allowing third-party bots to trigger cancellation
+    /// and return escrowed funds once expiry has passed.
+    pub fn sweep_expired(env: Env, id: u64) -> Result<(), Error> {
+        let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
+
+        if transfer.status != Status::Pending {
+            return Err(Error::NotPending);
+        }
+
+        if env.ledger().timestamp() <= transfer.expiry {
+            return Err(Error::NotExpired);
+        }
+
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        token::Client::new(&env, &token).transfer(
+            &env.current_contract_address(),
+            &transfer.from,
+            &transfer.amount,
+        );
+
+        transfer.status = Status::Cancelled;
+        storage::set_total_escrowed(
+            &env,
+            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+        );
+        assert_supply_invariant(&env, &token)?;
+
+        let amount = transfer.amount;
+        let from = transfer.from.clone();
+
+        storage::set_transfer(&env, &transfer);
+        storage::extend_instance(&env);
+        events::cancelled(&env, id, &from, amount);
+
+        Ok(())
+    }
 }
+

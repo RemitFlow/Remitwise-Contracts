@@ -2202,3 +2202,54 @@ fn test_storage_ttl_expiration_behavior() {
         assert!(ttl > 0);
     });
 }
+
+#[test]
+fn test_sweep_expired_success() {
+    let s = setup();
+    s.env.mock_all_auths();
+
+    let id = s.create_default_transfer();
+
+    // Advance ledger timestamp past expiry
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += DEFAULT_EXPIRY_OFFSET + 1;
+    });
+
+    let initial_balance = s.token_client().balance(&s.from);
+
+    // Call sweep_expired permissionlessly
+    let res = s.client.try_sweep_expired(&id);
+    assert!(res.is_ok());
+
+    let transfer = s.client.get_transfer(&id);
+    assert_eq!(transfer.status, Status::Cancelled);
+    assert_eq!(s.token_client().balance(&s.from), initial_balance + DEFAULT_TRANSFER_AMOUNT);
+}
+
+#[test]
+fn test_sweep_expired_not_expired_fails() {
+    let s = setup();
+    s.env.mock_all_auths();
+
+    let id = s.create_default_transfer();
+
+    let res = s.client.try_sweep_expired(&id);
+    assert_eq!(res, Err(Ok(crate::error::Error::NotExpired)));
+}
+
+#[test]
+fn test_sweep_expired_not_pending_fails() {
+    let s = setup();
+    s.env.mock_all_auths();
+
+    let id = s.create_default_transfer();
+
+    s.client.claim_transfer(&id, &s.recipient);
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += DEFAULT_EXPIRY_OFFSET + 1;
+    });
+
+    let res = s.client.try_sweep_expired(&id);
+    assert_eq!(res, Err(Ok(crate::error::Error::NotPending)));
+}
