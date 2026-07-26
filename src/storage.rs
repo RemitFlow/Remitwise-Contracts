@@ -251,3 +251,4 @@ pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
         .instance()
         .set(&InstanceKey::LastPrivilegedCall, &timestamp);
 }
+
