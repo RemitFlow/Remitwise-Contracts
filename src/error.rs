@@ -49,4 +49,7 @@ pub enum Error {
     /// The contract's actual token balance is less than its internally
     /// tracked `TotalEscrowed` liability.
     SupplyInvariantViolation = 20,
+    /// A privileged call was attempted before the cooldown period elapsed.
+    CooldownNotElapsed = 21,
 }
+

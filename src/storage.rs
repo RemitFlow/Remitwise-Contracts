@@ -14,15 +14,15 @@ pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
 /// Keys for values held in **instance** storage.
 ///
 /// Instance storage shares its time-to-live with the contract instance itself
-/// and is extended on every mutating call via [`extend_instance`]. All
+/// and is extended on every mutating call via [extend_instance]. All
 /// singleton configuration values live here.
 ///
 /// # Collision safety
-/// Soroban serialises `#[contracttype]` enum keys as an XDR `ScVec` whose
-/// first element is the variant name as a `Symbol`. Because the name string is
-/// part of the on-chain key, no two distinct variants â€” even with identical
-/// payloads â€” can ever collide. Separating instance and persistent keys into
-/// two enums makes a mis-routed write (e.g. passing an [`InstanceKey`] to the
+/// Soroban serialises #[contracttype] enum keys as an XDR ScVec whose
+/// first element is the variant name as a Symbol. Because the name string is
+/// part of the on-chain key, no two distinct variants — even with identical
+/// payloads — can ever collide. Separating instance and persistent keys into
+/// two enums makes a mis-routed write (e.g. passing an [InstanceKey] to the
 /// persistent store) a compile error rather than a silent bug.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,8 +44,9 @@ pub enum InstanceKey {
     /// Maintained incrementally on create/claim/cancel so that creating a
     /// transfer stays O(1) instead of rescanning every stored transfer.
     TotalEscrowed,
-    /// Ledger timestamp at which `initialize` was called.
+    /// Ledger timestamp at which initialize was called.
     InitializedAt,
+    /// Timestamp of the most recent privileged administrative call.
     LastPrivilegedCall,
 }
 
@@ -56,9 +57,9 @@ pub enum InstanceKey {
 /// unboundedly and must outlive the instance entry TTL.
 ///
 /// # Collision safety
-/// `Transfer(u64)` and `AllowedCaller(Address)` can never collide: their
-/// serialised keys differ by variant name string (`"Transfer"` vs
-/// `"AllowedCaller"`), regardless of the payload value. See [`InstanceKey`]
+/// Transfer(u64) and AllowedCaller(Address) can never collide: their
+/// serialised keys differ by variant name string ("Transfer" vs
+/// "AllowedCaller"), regardless of the payload value. See [InstanceKey]
 /// for the full encoding note.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,8 +129,7 @@ pub fn get_token(env: &Env) -> Option<Address> {
 pub fn set_initialized_at(env: &Env, timestamp: u64) {
     env.storage()
         .instance()
-        .set(&InstanceKey::InitializedAt,
-    LastPrivilegedCall, &timestamp);
+        .set(&InstanceKey::InitializedAt, &timestamp);
 }
 
 /// Read the ledger timestamp at which the contract was initialized, if any.
@@ -176,6 +176,21 @@ pub fn set_total_escrowed(env: &Env, value: i128) {
     env.storage()
         .instance()
         .set(&InstanceKey::TotalEscrowed, &value);
+}
+
+/// Read the timestamp of the last privileged call (0 when unset).
+pub fn get_last_privileged_call(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::LastPrivilegedCall)
+        .unwrap_or(0)
+}
+
+/// Persist the timestamp of the last privileged call.
+pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::LastPrivilegedCall, &timestamp);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,19 +251,3 @@ pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
 }
-
-/// Read the timestamp of the last privileged call (0 when unset).
-pub fn get_last_privileged_call(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get::<InstanceKey, u64>(&InstanceKey::LastPrivilegedCall)
-        .unwrap_or(0)
-}
-
-/// Persist the timestamp of the last privileged call.
-pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
-    env.storage()
-        .instance()
-        .set(&InstanceKey::LastPrivilegedCall, &timestamp);
-}
-
