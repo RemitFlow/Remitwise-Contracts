@@ -99,6 +99,20 @@ fn test_batch_operations_executes_successful_batch_in_order() {
 }
 
 #[test]
+fn test_batch_operations_rejects_batch_exceeding_max_size() {
+    let s = setup();
+    let mut operations = vec![&s.env];
+    for _ in 0..=crate::MAX_BATCH_SIZE {
+        operations.push_back(BatchOperation::Claim(ClaimTransferOperation {
+            id: 1,
+            recipient: s.recipient.clone(),
+        }));
+    }
+    let result = s.client.try_batch_operations(&operations);
+    assert_eq!(result, Err(Ok(crate::error::Error::BatchTooLarge)));
+}
+
+#[test]
 fn test_batch_operations_rolls_back_on_partial_failure() {
     let s = setup();
     let expiry = s.future_expiry();

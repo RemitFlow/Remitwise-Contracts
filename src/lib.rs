@@ -54,6 +54,8 @@ pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
 /// Maximum number of records returned by a paginated transfer query.
 pub const MAX_PAGE_SIZE: u32 = 100;
+/// Maximum number of operations allowed in a single batch_operations call.
+pub const MAX_BATCH_SIZE: u32 = 50;
 
 /// Reject an address that resolves to the contract's own address.
 ///
@@ -108,6 +110,9 @@ impl RemitFlowContract {
         env: Env,
         operations: Vec<BatchOperation>,
     ) -> Result<Vec<BatchOperationResult>, Error> {
+        if operations.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
         let mut results = Vec::new(&env);
         for operation in operations.iter() {
             let result = match operation {

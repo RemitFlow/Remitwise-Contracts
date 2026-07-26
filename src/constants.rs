@@ -17,3 +17,8 @@ pub const MAX_PAGE_SIZE: u32 = 100;
 
 /// Fee denominator used for basis-point calculations (100% = 10_000 bps).
 pub const FEE_DENOMINATOR: i128 = 10_000;
+
+/// Maximum number of operations allowed in a single batch_operations call.
+/// Bounds per-call resource usage (CPU/memory budget) and blast radius of a
+/// single atomic batch.
+pub const MAX_BATCH_SIZE: u32 = 50;
