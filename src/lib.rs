@@ -25,7 +25,14 @@ mod test_utils;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
-use crate::types::{BatchOperation, BatchOperationResult, ConfiguredLimits, Status, Transfer};
+use crate::events::{
+    GoalCancelledEvent, GoalCompletedEvent, GoalCreatedEvent, GoalDepositedEvent,
+    GoalWithdrawnEvent,
+};
+use crate::types::{
+    BatchOperation, BatchOperationResult, ConfiguredLimits, GoalStatus, SavingsGoal, Status,
+    Transfer,
+};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -531,6 +538,206 @@ impl RemitFlowContract {
         events::cancelled(&env, id, &from, amount);
 
         Ok(())
+    }
+
+    /// Creates a new savings goal for `owner`, targeting `target_amount` by
+    /// `deadline`. Requires `owner`'s authorization.
+    pub fn create_goal(
+        env: Env,
+        owner: Address,
+        target_amount: i128,
+        deadline: u64,
+    ) -> Result<u64, Error> {
+        storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        require_external_address(&env, &owner)?;
+        if target_amount <= 0 || target_amount > MAX_AMOUNT {
+            return Err(Error::InvalidGoalAmount);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now {
+            return Err(Error::InvalidDeadline);
+        }
+        if deadline - now > MAX_EXPIRY_WINDOW {
+            return Err(Error::InvalidDeadline);
+        }
+        owner.require_auth();
+
+        let id = math::checked_increment(storage::get_goal_counter(&env))
+            .ok_or(Error::CounterOverflow)?;
+
+        let goal = SavingsGoal {
+            id,
+            owner: owner.clone(),
+            target_amount,
+            current_amount: 0,
+            deadline,
+            created_at: now,
+            status: GoalStatus::Active,
+        };
+        storage::set_goal(&env, &goal);
+        storage::set_goal_counter(&env, id);
+        storage::extend_instance(&env);
+        events::goal_created(
+            &env,
+            &GoalCreatedEvent {
+                goal_id: id,
+                owner,
+                target_amount,
+                deadline,
+                timestamp: now,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Deposits `amount` from `owner` into their savings goal, moving tokens
+    /// from `owner` into escrow. Automatically marks the goal `Completed`
+    /// (emitting `goal_completed`) once `current_amount` reaches
+    /// `target_amount`. Requires `owner`'s authorization.
+    pub fn deposit_goal(env: Env, id: u64, owner: Address, amount: i128) -> Result<(), Error> {
+        require_external_address(&env, &owner)?;
+        let mut goal = storage::get_goal(&env, id).ok_or(Error::GoalNotFound)?;
+        if goal.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+        if goal.status != GoalStatus::Active {
+            return Err(Error::GoalNotActive);
+        }
+        if amount <= 0 || amount > MAX_AMOUNT {
+            return Err(Error::InvalidGoalAmount);
+        }
+        owner.require_auth();
+
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        token::Client::new(&env, &token).transfer(&owner, &env.current_contract_address(), &amount);
+
+        let new_total = math::checked_add_amount(goal.current_amount, amount)
+            .ok_or(Error::InvalidGoalAmount)?;
+        goal.current_amount = new_total;
+        let now = env.ledger().timestamp();
+        let completed = new_total >= goal.target_amount;
+        if completed {
+            goal.status = GoalStatus::Completed;
+        }
+        storage::set_goal(&env, &goal);
+        storage::extend_instance(&env);
+
+        events::goal_deposited(
+            &env,
+            &GoalDepositedEvent {
+                goal_id: id,
+                owner: owner.clone(),
+                amount,
+                new_total,
+                timestamp: now,
+            },
+        );
+        if completed {
+            events::goal_completed(
+                &env,
+                &GoalCompletedEvent {
+                    goal_id: id,
+                    owner,
+                    final_amount: new_total,
+                    timestamp: now,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Withdraws `amount` from an active savings goal back to `owner`.
+    /// Requires `owner`'s authorization.
+    pub fn withdraw_goal(env: Env, id: u64, owner: Address, amount: i128) -> Result<(), Error> {
+        require_external_address(&env, &owner)?;
+        let mut goal = storage::get_goal(&env, id).ok_or(Error::GoalNotFound)?;
+        if goal.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+        if goal.status != GoalStatus::Active {
+            return Err(Error::GoalNotActive);
+        }
+        if amount <= 0 {
+            return Err(Error::InvalidGoalAmount);
+        }
+        if amount > goal.current_amount {
+            return Err(Error::InsufficientGoalBalance);
+        }
+        owner.require_auth();
+
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        token::Client::new(&env, &token).transfer(&env.current_contract_address(), &owner, &amount);
+
+        let new_total = math::checked_sub_amount(goal.current_amount, amount)
+            .ok_or(Error::InvalidGoalAmount)?;
+        goal.current_amount = new_total;
+        storage::set_goal(&env, &goal);
+        storage::extend_instance(&env);
+
+        let now = env.ledger().timestamp();
+        events::goal_withdrawn(
+            &env,
+            &GoalWithdrawnEvent {
+                goal_id: id,
+                owner,
+                amount,
+                new_total,
+                timestamp: now,
+            },
+        );
+        Ok(())
+    }
+
+    /// Cancels an active savings goal, refunding any deposited balance to
+    /// `owner`. Requires `owner`'s authorization.
+    pub fn cancel_goal(env: Env, id: u64, owner: Address) -> Result<(), Error> {
+        require_external_address(&env, &owner)?;
+        let mut goal = storage::get_goal(&env, id).ok_or(Error::GoalNotFound)?;
+        if goal.owner != owner {
+            return Err(Error::Unauthorized);
+        }
+        if goal.status != GoalStatus::Active {
+            return Err(Error::GoalNotActive);
+        }
+        owner.require_auth();
+
+        let refund = goal.current_amount;
+        if refund > 0 {
+            let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+            token::Client::new(&env, &token).transfer(
+                &env.current_contract_address(),
+                &owner,
+                &refund,
+            );
+        }
+        goal.current_amount = 0;
+        goal.status = GoalStatus::Cancelled;
+        storage::set_goal(&env, &goal);
+        storage::extend_instance(&env);
+
+        let now = env.ledger().timestamp();
+        events::goal_cancelled(
+            &env,
+            &GoalCancelledEvent {
+                goal_id: id,
+                owner,
+                refunded_amount: refund,
+                timestamp: now,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn get_goal(env: Env, id: u64) -> Result<SavingsGoal, Error> {
+        storage::get_goal(&env, id).ok_or(Error::GoalNotFound)
+    }
+
+    pub fn goal_exists(env: Env, id: u64) -> bool {
+        storage::has_goal(&env, id)
+    }
+
+    pub fn goal_counter(env: Env) -> u64 {
+        storage::get_goal_counter(&env)
     }
 }
 

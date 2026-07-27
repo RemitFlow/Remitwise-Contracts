@@ -5,11 +5,16 @@ use soroban_sdk::testutils::{Address as _, Events, Ledger};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
 use soroban_sdk::{vec, Address, Env, IntoVal};
 
+use crate::events::{
+    GoalCancelledEvent, GoalCompletedEvent, GoalCreatedEvent, GoalDepositedEvent,
+    GoalWithdrawnEvent,
+};
 use crate::test_utils::{
     TestFixture, DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
 use crate::types::{
-    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
+    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation,
+    GoalStatus, Status,
 };
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
@@ -2266,4 +2271,518 @@ fn test_sweep_expired_not_pending_fails() {
 
     let res = s.client.try_sweep_expired(&id);
     assert_eq!(res, Err(Ok(crate::error::Error::NotPending)));
+}
+
+// ---------------------------------------------------------------------------
+// Savings Goal Lifecycle Tests
+// ---------------------------------------------------------------------------
+
+const GOAL_TARGET_AMOUNT: i128 = 500;
+const GOAL_DEADLINE_OFFSET: u64 = 2_000;
+
+fn goal_deadline(s: &TestFixture) -> u64 {
+    s.env.ledger().timestamp() + GOAL_DEADLINE_OFFSET
+}
+
+#[test]
+fn test_create_goal_stores_active_goal_and_emits_event() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    assert_eq!(id, 1);
+    assert_eq!(s.client.goal_counter(), 1);
+    assert!(s.client.goal_exists(&id));
+
+    let goal = s.client.get_goal(&id);
+    assert_eq!(goal.id, id);
+    assert_eq!(goal.owner, s.from);
+    assert_eq!(goal.target_amount, GOAL_TARGET_AMOUNT);
+    assert_eq!(goal.current_amount, 0);
+    assert_eq!(goal.deadline, deadline);
+    assert_eq!(goal.status, GoalStatus::Active);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+    let last = contract_events.last().unwrap();
+    let topic_symbol: soroban_sdk::Symbol = last.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::Symbol::new(&s.env, "goal_created")
+    );
+    let topic_id: u64 = last.1.get(1).unwrap().into_val(&s.env);
+    assert_eq!(topic_id, id);
+    let payload: GoalCreatedEvent = last.2.clone().into_val(&s.env);
+    assert_eq!(payload.goal_id, id);
+    assert_eq!(payload.owner, s.from);
+    assert_eq!(payload.target_amount, GOAL_TARGET_AMOUNT);
+    assert_eq!(payload.deadline, deadline);
+    assert_eq!(payload.timestamp, s.env.ledger().timestamp());
+}
+
+#[test]
+fn test_create_goal_increments_counter_across_goals() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+
+    let id1 = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    let id2 = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
+    assert_eq!(s.client.goal_counter(), 2);
+}
+
+#[test]
+fn test_create_goal_rejects_non_positive_amount() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+
+    let res = s.client.try_create_goal(&s.from, &0, &deadline);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidGoalAmount)));
+
+    let res = s.client.try_create_goal(&s.from, &-1, &deadline);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidGoalAmount)));
+}
+
+#[test]
+fn test_create_goal_rejects_amount_exceeding_max() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+
+    let res = s
+        .client
+        .try_create_goal(&s.from, &(crate::MAX_AMOUNT + 1), &deadline);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidGoalAmount)));
+}
+
+#[test]
+fn test_create_goal_rejects_past_or_present_deadline() {
+    let s = setup();
+    let now = s.env.ledger().timestamp();
+
+    let res = s.client.try_create_goal(&s.from, &GOAL_TARGET_AMOUNT, &now);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidDeadline)));
+}
+
+#[test]
+fn test_create_goal_rejects_deadline_beyond_max_window() {
+    let s = setup();
+    let now = s.env.ledger().timestamp();
+    let deadline = now + crate::MAX_EXPIRY_WINDOW + 1;
+
+    let res = s
+        .client
+        .try_create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidDeadline)));
+}
+
+#[test]
+fn test_create_goal_rejects_contract_address_as_owner() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let contract_addr = s.client.address.clone();
+
+    let res = s
+        .client
+        .try_create_goal(&contract_addr, &GOAL_TARGET_AMOUNT, &deadline);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidAddress)));
+}
+
+#[test]
+fn test_deposit_goal_moves_funds_and_updates_total() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    let balance_before = s.token_client().balance(&s.from);
+    s.client.deposit_goal(&id, &s.from, &100);
+
+    let goal = s.client.get_goal(&id);
+    assert_eq!(goal.current_amount, 100);
+    assert_eq!(goal.status, GoalStatus::Active);
+    assert_eq!(s.token_client().balance(&s.from), balance_before - 100);
+    assert_eq!(s.token_client().balance(&s.client.address), 100);
+}
+
+#[test]
+fn test_deposit_goal_completes_when_target_reached() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    s.client
+        .deposit_goal(&id, &s.from, &(GOAL_TARGET_AMOUNT - 1));
+    assert_eq!(s.client.get_goal(&id).status, GoalStatus::Active);
+
+    s.client.deposit_goal(&id, &s.from, &1);
+    let goal = s.client.get_goal(&id);
+    assert_eq!(goal.status, GoalStatus::Completed);
+    assert_eq!(goal.current_amount, GOAL_TARGET_AMOUNT);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+    let last = contract_events.last().unwrap();
+    let topic_symbol: soroban_sdk::Symbol = last.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::Symbol::new(&s.env, "goal_completed")
+    );
+    let payload: GoalCompletedEvent = last.2.clone().into_val(&s.env);
+    assert_eq!(payload.goal_id, id);
+    assert_eq!(payload.owner, s.from);
+    assert_eq!(payload.final_amount, GOAL_TARGET_AMOUNT);
+}
+
+#[test]
+fn test_deposit_goal_emits_deposited_event_with_delta_and_running_total() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    s.client.deposit_goal(&id, &s.from, &150);
+    s.client.deposit_goal(&id, &s.from, &50);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+    let last = contract_events.last().unwrap();
+    let payload: GoalDepositedEvent = last.2.clone().into_val(&s.env);
+    assert_eq!(payload.goal_id, id);
+    assert_eq!(payload.owner, s.from);
+    assert_eq!(payload.amount, 50);
+    assert_eq!(payload.new_total, 200);
+}
+
+#[test]
+fn test_deposit_goal_rejects_wrong_owner() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    let res = s.client.try_deposit_goal(&id, &s.recipient, &100);
+    assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
+}
+
+#[test]
+fn test_deposit_goal_rejects_unknown_goal() {
+    let s = setup();
+    let res = s.client.try_deposit_goal(&1, &s.from, &100);
+    assert_eq!(res, Err(Ok(crate::error::Error::GoalNotFound)));
+}
+
+#[test]
+fn test_deposit_goal_rejects_non_positive_amount() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    let res = s.client.try_deposit_goal(&id, &s.from, &0);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidGoalAmount)));
+}
+
+#[test]
+fn test_deposit_goal_rejects_when_not_active() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.cancel_goal(&id, &s.from);
+
+    let res = s.client.try_deposit_goal(&id, &s.from, &100);
+    assert_eq!(res, Err(Ok(crate::error::Error::GoalNotActive)));
+}
+
+#[test]
+fn test_withdraw_goal_returns_funds_and_updates_total() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &300);
+
+    let balance_before = s.token_client().balance(&s.from);
+    s.client.withdraw_goal(&id, &s.from, &120);
+
+    let goal = s.client.get_goal(&id);
+    assert_eq!(goal.current_amount, 180);
+    assert_eq!(s.token_client().balance(&s.from), balance_before + 120);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+    let last = contract_events.last().unwrap();
+    let topic_symbol: soroban_sdk::Symbol = last.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::Symbol::new(&s.env, "goal_withdrawn")
+    );
+    let payload: GoalWithdrawnEvent = last.2.clone().into_val(&s.env);
+    assert_eq!(payload.goal_id, id);
+    assert_eq!(payload.owner, s.from);
+    assert_eq!(payload.amount, 120);
+    assert_eq!(payload.new_total, 180);
+}
+
+#[test]
+fn test_withdraw_goal_rejects_amount_exceeding_balance() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &50);
+
+    let res = s.client.try_withdraw_goal(&id, &s.from, &51);
+    assert_eq!(res, Err(Ok(crate::error::Error::InsufficientGoalBalance)));
+}
+
+#[test]
+fn test_withdraw_goal_rejects_non_positive_amount() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &50);
+
+    let res = s.client.try_withdraw_goal(&id, &s.from, &0);
+    assert_eq!(res, Err(Ok(crate::error::Error::InvalidGoalAmount)));
+}
+
+#[test]
+fn test_withdraw_goal_rejects_wrong_owner() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &50);
+
+    let res = s.client.try_withdraw_goal(&id, &s.recipient, &10);
+    assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
+}
+
+#[test]
+fn test_withdraw_goal_rejects_when_not_active() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &GOAL_TARGET_AMOUNT);
+    assert_eq!(s.client.get_goal(&id).status, GoalStatus::Completed);
+
+    let res = s.client.try_withdraw_goal(&id, &s.from, &10);
+    assert_eq!(res, Err(Ok(crate::error::Error::GoalNotActive)));
+}
+
+#[test]
+fn test_cancel_goal_refunds_balance_and_sets_cancelled() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id, &s.from, &200);
+
+    let balance_before = s.token_client().balance(&s.from);
+    s.client.cancel_goal(&id, &s.from);
+
+    let goal = s.client.get_goal(&id);
+    assert_eq!(goal.status, GoalStatus::Cancelled);
+    assert_eq!(goal.current_amount, 0);
+    assert_eq!(s.token_client().balance(&s.from), balance_before + 200);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+    let last = contract_events.last().unwrap();
+    let topic_symbol: soroban_sdk::Symbol = last.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::Symbol::new(&s.env, "goal_cancelled")
+    );
+    let payload: GoalCancelledEvent = last.2.clone().into_val(&s.env);
+    assert_eq!(payload.goal_id, id);
+    assert_eq!(payload.owner, s.from);
+    assert_eq!(payload.refunded_amount, 200);
+}
+
+#[test]
+fn test_cancel_goal_with_zero_balance_skips_token_transfer_but_still_cancels() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    let balance_before = s.token_client().balance(&s.from);
+    s.client.cancel_goal(&id, &s.from);
+
+    assert_eq!(s.client.get_goal(&id).status, GoalStatus::Cancelled);
+    assert_eq!(s.token_client().balance(&s.from), balance_before);
+}
+
+#[test]
+fn test_cancel_goal_rejects_wrong_owner() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+
+    let res = s.client.try_cancel_goal(&id, &s.recipient);
+    assert_eq!(res, Err(Ok(crate::error::Error::Unauthorized)));
+}
+
+#[test]
+fn test_cancel_goal_rejects_unknown_goal() {
+    let s = setup();
+    let res = s.client.try_cancel_goal(&1, &s.from);
+    assert_eq!(res, Err(Ok(crate::error::Error::GoalNotFound)));
+}
+
+#[test]
+fn test_cancel_goal_rejects_when_already_cancelled() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.cancel_goal(&id, &s.from);
+
+    let res = s.client.try_cancel_goal(&id, &s.from);
+    assert_eq!(res, Err(Ok(crate::error::Error::GoalNotActive)));
+}
+
+#[test]
+fn test_goal_getters_before_creation() {
+    let s = setup();
+    assert_eq!(s.client.goal_counter(), 0);
+    assert!(!s.client.goal_exists(&1));
+    assert_eq!(
+        s.client.try_get_goal(&1),
+        Err(Ok(crate::error::Error::GoalNotFound))
+    );
+}
+
+#[test]
+fn test_multiple_goals_are_independent() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+    let id1 = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    let id2 = s
+        .client
+        .create_goal(&s.from, &(GOAL_TARGET_AMOUNT * 2), &deadline);
+
+    s.client.deposit_goal(&id1, &s.from, &100);
+
+    assert_eq!(s.client.get_goal(&id1).current_amount, 100);
+    assert_eq!(s.client.get_goal(&id2).current_amount, 0);
+    assert_eq!(
+        s.client.get_goal(&id2).target_amount,
+        GOAL_TARGET_AMOUNT * 2
+    );
+}
+
+/// Full-lifecycle event schema test: locks down every goal event's topics
+/// and structured payload contents for indexers, mirroring
+/// [test_event_payload_contents] for the transfer lifecycle.
+#[test]
+fn test_goal_event_schema_stability() {
+    let s = setup();
+    let deadline = goal_deadline(&s);
+
+    // Goal 1: create -> partial deposit -> withdraw -> cancel
+    let id1 = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id1, &s.from, &200);
+    s.client.withdraw_goal(&id1, &s.from, &50);
+    s.client.cancel_goal(&id1, &s.from);
+
+    // Goal 2: create -> deposit to completion
+    let id2 = s
+        .client
+        .create_goal(&s.from, &GOAL_TARGET_AMOUNT, &deadline);
+    s.client.deposit_goal(&id2, &s.from, &GOAL_TARGET_AMOUNT);
+
+    let events = s.env.events().all();
+    let contract_events: std::vec::Vec<_> =
+        events.iter().filter(|e| e.0 == s.client.address).collect();
+
+    // init + caller_added (setup) + goal_created + goal_deposited +
+    // goal_withdrawn + goal_cancelled + goal_created + goal_deposited +
+    // goal_completed
+    let expected_topics: &[&str] = &[
+        "init",
+        "caller_added",
+        "goal_created",
+        "goal_deposited",
+        "goal_withdrawn",
+        "goal_cancelled",
+        "goal_created",
+        "goal_deposited",
+        "goal_completed",
+    ];
+    assert_eq!(contract_events.len(), expected_topics.len());
+
+    for (idx, expected_name) in expected_topics.iter().enumerate() {
+        let event = &contract_events[idx];
+        let topics = &event.1;
+        let first_topic: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+        assert_eq!(
+            first_topic,
+            soroban_sdk::Symbol::new(&s.env, expected_name),
+            "topic mismatch at index {idx}"
+        );
+    }
+
+    // Spot-check every goal-specific payload decodes with the expected
+    // structured schema (named fields, not positional tuples).
+    let created1: GoalCreatedEvent = contract_events[2].2.clone().into_val(&s.env);
+    assert_eq!(created1.goal_id, id1);
+    assert_eq!(created1.owner, s.from);
+    assert_eq!(created1.target_amount, GOAL_TARGET_AMOUNT);
+    assert_eq!(created1.deadline, deadline);
+
+    let deposited1: GoalDepositedEvent = contract_events[3].2.clone().into_val(&s.env);
+    assert_eq!(deposited1.goal_id, id1);
+    assert_eq!(deposited1.amount, 200);
+    assert_eq!(deposited1.new_total, 200);
+
+    let withdrawn1: GoalWithdrawnEvent = contract_events[4].2.clone().into_val(&s.env);
+    assert_eq!(withdrawn1.goal_id, id1);
+    assert_eq!(withdrawn1.amount, 50);
+    assert_eq!(withdrawn1.new_total, 150);
+
+    let cancelled1: GoalCancelledEvent = contract_events[5].2.clone().into_val(&s.env);
+    assert_eq!(cancelled1.goal_id, id1);
+    assert_eq!(cancelled1.refunded_amount, 150);
+
+    let completed2: GoalCompletedEvent = contract_events[8].2.clone().into_val(&s.env);
+    assert_eq!(completed2.goal_id, id2);
+    assert_eq!(completed2.final_amount, GOAL_TARGET_AMOUNT);
 }

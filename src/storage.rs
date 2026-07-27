@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::Transfer;
+use crate::types::{SavingsGoal, Transfer};
 
 /// Number of ledgers used as the threshold before bumping instance TTL.
 pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
@@ -20,8 +20,8 @@ pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
 /// # Collision safety
 /// Soroban serialises #[contracttype] enum keys as an XDR ScVec whose
 /// first element is the variant name as a Symbol. Because the name string is
-/// part of the on-chain key, no two distinct variants — even with identical
-/// payloads — can ever collide. Separating instance and persistent keys into
+/// part of the on-chain key, no two distinct variants â€” even with identical
+/// payloads â€” can ever collide. Separating instance and persistent keys into
 /// two enums makes a mis-routed write (e.g. passing an [InstanceKey] to the
 /// persistent store) a compile error rather than a silent bug.
 #[contracttype]
@@ -48,6 +48,8 @@ pub enum InstanceKey {
     InitializedAt,
     /// Timestamp of the most recent privileged administrative call.
     LastPrivilegedCall,
+    /// Monotonic counter for issued savings goal ids.
+    GoalCounter,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -70,6 +72,8 @@ pub enum PersistentKey {
     AllowedCaller(Address),
     /// Per-account operation counter, keyed by account address.
     AccountOpCount(Address),
+    /// A single savings goal record, keyed by its unique sequential id.
+    Goal(u64),
 }
 
 // ---------------------------------------------------------------------------
@@ -250,4 +254,42 @@ pub fn increment_account_op_count(env: &Env, account: &Address) {
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+// ---------------------------------------------------------------------------
+// Savings goal storage helpers
+// ---------------------------------------------------------------------------
+
+/// Read the current savings goal counter, defaulting to zero when unset.
+pub fn get_goal_counter(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::GoalCounter)
+        .unwrap_or(0)
+}
+
+/// Persist a new value for the savings goal counter.
+pub fn set_goal_counter(env: &Env, value: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::GoalCounter, &value);
+}
+
+/// Store a savings goal record in persistent storage keyed by its id.
+pub fn set_goal(env: &Env, goal: &SavingsGoal) {
+    let key = PersistentKey::Goal(goal.id);
+    env.storage().persistent().set(&key, goal);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
+/// Read a savings goal record from persistent storage by id, if present.
+pub fn get_goal(env: &Env, id: u64) -> Option<SavingsGoal> {
+    env.storage().persistent().get(&PersistentKey::Goal(id))
+}
+
+/// Returns true if a savings goal with the given id exists.
+pub fn has_goal(env: &Env, id: u64) -> bool {
+    env.storage().persistent().has(&PersistentKey::Goal(id))
 }

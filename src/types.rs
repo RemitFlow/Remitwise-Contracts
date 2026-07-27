@@ -74,6 +74,39 @@ pub struct Transfer {
     pub status: Status,
 }
 
+/// Lifecycle status of a savings goal.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoalStatus {
+    /// The goal is open and accepting deposits/withdrawals.
+    Active = 0,
+    /// The goal reached or exceeded its target amount.
+    Completed = 1,
+    /// The owner cancelled the goal; any balance has been refunded.
+    Cancelled = 2,
+}
+
+/// A single savings goal record tracking an owner's progress toward a
+/// target amount by a deadline.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavingsGoal {
+    /// Unique sequential identifier for this goal.
+    pub id: u64,
+    /// Address that created and controls this goal.
+    pub owner: Address,
+    /// Token amount the owner is saving toward.
+    pub target_amount: i128,
+    /// Token amount currently deposited toward the target.
+    pub current_amount: i128,
+    /// Ledger timestamp by which the owner intends to reach the target.
+    pub deadline: u64,
+    /// Ledger timestamp at which the goal was created.
+    pub created_at: u64,
+    /// Current lifecycle status of the goal.
+    pub status: GoalStatus,
+}
+
 /// Configured resource and operation limits for the contract.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]

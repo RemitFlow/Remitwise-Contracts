@@ -123,4 +123,88 @@ Returns the contract's configured operational limits.
 * **Authorization**: None (public view, callable pre/post-initialization)
 * **Returns**: [`ConfiguredLimits`](data-types.md#configuredlimits) containing `max_amount`, `max_expiry_window`, `max_total_escrowed`, and `max_page_size`.
 
+## Savings Goals
+
+A savings goal tracks an owner's progress toward a target token amount by a
+deadline, independent of the transfer allowlist. See
+[Event Reference](./event-reference.md#savings-goal-events) for the
+structured event payloads emitted below.
+
+### `create_goal(owner: Address, target_amount: i128, deadline: u64) -> Result<u64, Error>`
+
+Creates a new savings goal for `owner`.
+
+* **Authorization**: `owner` (`owner.require_auth()`)
+* **Effect**: Stores a new `SavingsGoal` in `Active` status with
+  `current_amount` of `0`, keyed by a monotonic id independent of the
+  transfer counter.
+* **Events**: Emits `goal_created` with a `GoalCreatedEvent` payload.
+* **Errors**: `NotInitialized`; `InvalidAddress` if `owner` is the contract's
+  own address; `InvalidGoalAmount` if `target_amount` is not strictly
+  positive or exceeds `MAX_AMOUNT`; `InvalidDeadline` if `deadline` is not in
+  the future or exceeds `MAX_EXPIRY_WINDOW` from now.
+
+### `deposit_goal(id: u64, owner: Address, amount: i128) -> Result<(), Error>`
+
+Deposits `amount` from `owner` into their goal, escrowing the tokens in the
+contract.
+
+* **Authorization**: `owner` (`owner.require_auth()`)
+* **Effect**: Transfers `amount` from `owner` to the contract, then adds it to
+  `current_amount`. If the new total reaches or exceeds `target_amount`, the
+  goal transitions to `Completed`.
+* **Events**: Emits `goal_deposited` with a `GoalDepositedEvent` payload
+  (delta `amount` and resulting `new_total`); additionally emits
+  `goal_completed` with a `GoalCompletedEvent` payload when the deposit
+  completes the goal.
+* **Errors**: `GoalNotFound`; `Unauthorized` if the caller is not the goal's
+  owner; `GoalNotActive` if the goal is `Completed` or `Cancelled`;
+  `InvalidGoalAmount` if `amount` is not strictly positive or exceeds
+  `MAX_AMOUNT`.
+
+### `withdraw_goal(id: u64, owner: Address, amount: i128) -> Result<(), Error>`
+
+Withdraws `amount` from an active goal back to `owner`.
+
+* **Authorization**: `owner` (`owner.require_auth()`)
+* **Effect**: Transfers `amount` from the contract back to `owner` and
+  subtracts it from `current_amount`.
+* **Events**: Emits `goal_withdrawn` with a `GoalWithdrawnEvent` payload
+  (delta `amount` and resulting `new_total`).
+* **Errors**: `GoalNotFound`; `Unauthorized`; `GoalNotActive`;
+  `InvalidGoalAmount` if `amount` is not strictly positive;
+  `InsufficientGoalBalance` if `amount` exceeds the goal's `current_amount`.
+
+### `cancel_goal(id: u64, owner: Address) -> Result<(), Error>`
+
+Cancels an active goal, refunding any deposited balance to `owner`.
+
+* **Authorization**: `owner` (`owner.require_auth()`)
+* **Effect**: Refunds `current_amount` to `owner` (skipped when it's zero),
+  sets `current_amount` to `0`, and transitions the goal to `Cancelled`.
+* **Events**: Emits `goal_cancelled` with a `GoalCancelledEvent` payload
+  carrying the refunded amount.
+* **Errors**: `GoalNotFound`; `Unauthorized`; `GoalNotActive` if the goal is
+  already `Completed` or `Cancelled`.
+
+### `get_goal(id: u64) -> Result<SavingsGoal, Error>`
+
+Returns the full record for a savings goal.
+
+* **Authorization**: None (public view)
+* **Errors**: `GoalNotFound` if no goal exists for `id`.
+
+### `goal_exists(id: u64) -> bool`
+
+Returns whether a savings goal exists for `id`.
+
+* **Authorization**: None (public view)
+
+### `goal_counter() -> u64`
+
+Returns the id issued to the most recently created savings goal (`0` if none
+have been created).
+
+* **Authorization**: None (public view)
+
 

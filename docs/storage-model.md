@@ -57,6 +57,7 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 | `Counter` | `u64` | Monotonically increasing id issued to the next transfer |
 | `Paused` | `bool` | When `true`, `create_transfer` is blocked |
 | `InitializedAt` | `u64` | Ledger timestamp at which `initialize` was called |
+| `GoalCounter` | `u64` | Monotonically increasing id issued to the next savings goal, independent of `Counter` |
 
 ### `PersistentKey` — persistent storage
 
@@ -64,6 +65,7 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 |---|---|---|---|
 | `Transfer(u64)` | Transfer id | `Transfer` struct | Full record for a single escrow transfer |
 | `AllowedCaller(Address)` | Caller address | `bool` | Allowlist membership flag |
+| `Goal(u64)` | Goal id | `SavingsGoal` struct | Full record for a single savings goal |
 
 ---
 

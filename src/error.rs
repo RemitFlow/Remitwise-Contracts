@@ -49,8 +49,20 @@ pub enum Error {
     /// The contract's actual token balance is less than its internally
     /// tracked `TotalEscrowed` liability.
     SupplyInvariantViolation = 20,
-    /// The number of operations in a atch_operations call exceeds
+    /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
-    BatchTooLarge = 21,
+    BatchTooLarge = 22,
+    /// No savings goal exists for the supplied id.
+    GoalNotFound = 23,
+    /// The supplied goal amount was not strictly positive, or exceeded the
+    /// maximum allowed per-transfer amount.
+    InvalidGoalAmount = 24,
+    /// The supplied goal deadline is not in the future, or is further out
+    /// than the maximum allowed window.
+    InvalidDeadline = 25,
+    /// The goal is not in the `Active` status required for this operation.
+    GoalNotActive = 26,
+    /// A withdrawal was attempted for more than the goal's current balance.
+    InsufficientGoalBalance = 27,
 }
 
