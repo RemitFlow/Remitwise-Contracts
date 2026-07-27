@@ -50,6 +50,8 @@ pub const PRIVILEGED_COOLDOWN: u64 = 300;
 
 /// Maximum number of records returned by a paginated transfer query.
 pub const MAX_PAGE_SIZE: u32 = 100;
+/// Maximum number of operations allowed in a single batch_operations call.
+pub const MAX_BATCH_SIZE: u32 = 50;
 
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
@@ -94,6 +96,9 @@ impl RemitFlowContract {
         env: Env,
         operations: Vec<BatchOperation>,
     ) -> Result<Vec<BatchOperationResult>, Error> {
+        if operations.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
         let mut results = Vec::new(&env);
         for operation in operations.iter() {
             let result = match operation {

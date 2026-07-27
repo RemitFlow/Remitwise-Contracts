@@ -15,6 +15,7 @@ rules as its corresponding standalone entrypoint.
 The batch is atomic. When any operation returns an error, Soroban rolls back all
 earlier operations in that batch, including token movements, storage changes,
 and emitted events. An empty batch succeeds and returns an empty result vector.
+The batch is bounded to at most MAX_BATCH_SIZE (50) operations per call; a larger batch returns BatchTooLarge before any operation runs.
 
 Successful results preserve input order. `Create` returns `Created(id)`;
 `Claim` returns `Claimed`; and `Cancel` returns `Cancelled`.

@@ -15,7 +15,7 @@ meaning, and the entrypoints that can produce it.
 | 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller` |
 | 3 | `TransferNotFound` | No record exists for the supplied transfer `id`. Either the id was never created or it was assigned to a transfer that was purged. | `get_transfer`, `get_status`, `transfer_exists`, `is_expired`, `claim_transfer`, `cancel_transfer` |
 | 4 | `InvalidAmount` | The supplied transfer `amount` is not strictly positive (zero or negative). | `create_transfer` |
-| 5 | `InvalidExpiry` | The supplied `expiry` timestamp is not in the future — it must be strictly greater than the current ledger timestamp. | `create_transfer` |
+| 5 | `InvalidExpiry` | The supplied `expiry` timestamp is not in the future â€” it must be strictly greater than the current ledger timestamp. | `create_transfer` |
 | 6 | `CounterOverflow` | The transfer counter would overflow its `u64` range. The contract supports at most `u64::MAX` transfers in its lifetime. | `create_transfer` |
 | 7 | `Unauthorized` | The caller is not the expected party for this action. Raised when the recipient does not match on `claim_transfer` or the sender does not match on `cancel_transfer`. | `claim_transfer`, `cancel_transfer` |
 | 8 | `NotPending` | The transfer is not in the `Pending` state, so it cannot be claimed or cancelled. Already-claimed or cancelled transfers are final. | `claim_transfer`, `cancel_transfer` |
@@ -30,16 +30,17 @@ meaning, and the entrypoints that can produce it.
 | 17 | `NoPendingAdmin` | `accept_admin` was called but no admin transfer has been nominated via `transfer_admin`. | `accept_admin` |
 | 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
 | 20 | `SupplyInvariantViolation` | The contract's actual token balance is less than its internally tracked `TotalEscrowed` liability. Checked automatically after every entrypoint that moves escrowed funds; see [Invariants](./invariants.md). | `create_transfer`, `claim_transfer`, `cancel_transfer`, `check_supply_invariant` |
+| 21 | `BatchTooLarge` | The number of operations in a `batch_operations` call exceeds `MAX_BATCH_SIZE`. | `batch_operations` |
 
 ---
 
-## Entrypoint → Error Map
+## Entrypoint â†’ Error Map
 
 | Entrypoint | Possible Errors |
 |---|---|
 | `initialize` | `AlreadyInitialized` (1)*, `InvalidAddress` (18) |
 | `get_admin`, `get_token`, `get_initialized_at`, `get_balances` | `NotInitialized` (2) |
-| `counter`, `is_paused`, `is_caller_allowed` | None† |
+| `counter`, `is_paused`, `is_caller_allowed` | Noneâ€  |
 | `pause`, `unpause` | `NotInitialized` (2) |
 | `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `remove_caller` | `NotInitialized` (2) |
@@ -49,14 +50,14 @@ meaning, and the entrypoints that can produce it.
 | `check_supply_invariant` | `NotInitialized` (2), `SupplyInvariantViolation` (20) |
 | `transfer_admin` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `accept_admin` | `NoPendingAdmin` (17), `NotInitialized` (2) |
-| `get_pending_admin` | None† |
-| `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)‡ |
-| `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | None† |
+| `get_pending_admin` | Noneâ€  |
+| `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)â€¡ |
+| `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | Noneâ€  |
 | `batch_operations` | Any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` depending on the operations in the batch |
 
 \* `initialize` does not return `NotInitialized` (it is the call that performs initialisation).  
-† Returns `Ok` / plain value instead of `Result`; no error path.  
-‡ `transfer_exists` returns `bool` (no error path); `is_expired` returns `NotInitialized` (2) or `TransferNotFound` (3).
+â€  Returns `Ok` / plain value instead of `Result`; no error path.  
+â€¡ `transfer_exists` returns `bool` (no error path); `is_expired` returns `NotInitialized` (2) or `TransferNotFound` (3).
 
 ---
 
@@ -77,5 +78,5 @@ using the table at the top of this page.
 
 ## See Also
 
-- [`src/error.rs`](https://github.com/RemitFlow/Remitwise-Contracts/blob/main/src/error.rs) — authoritative source for the enum definition
-- [Entrypoint Reference](./entrypoint-reference.md) — detailed interface docs per entrypoint
+- [`src/error.rs`](https://github.com/RemitFlow/Remitwise-Contracts/blob/main/src/error.rs) â€” authoritative source for the enum definition
+- [Entrypoint Reference](./entrypoint-reference.md) â€” detailed interface docs per entrypoint
