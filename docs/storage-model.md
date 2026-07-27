@@ -100,3 +100,5 @@ Both thresholds and amounts are the same for instance and persistent storage in 
 > Soroban encodes keys by **variant name string**. Renaming any variant in `InstanceKey` or `PersistentKey` changes its on-chain key and permanently orphans all previously stored data under the old name. Treat all variant names as part of the public storage interface.
 
 Adding a new variant is always safe. Removing an unused variant is safe once all on-chain data under that key has been cleared or migrated.
+
+See [Naming Conventions](./naming-conventions.md) for the PascalCase format enforced on these variant names, and how it's checked automatically.

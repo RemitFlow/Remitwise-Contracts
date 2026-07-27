@@ -2038,6 +2038,40 @@ fn test_event_topics_stability() {
     }
 }
 
+/// Guards the naming convention documented in `docs/event-reference.md`:
+/// every event topic must be snake_case and fit within the Soroban `Symbol`
+/// length limit. Reuses the same live-emitted topic list as
+/// [test_event_topics_stability] so a rename that isn't reflected here fails
+/// both tests, not just a hardcoded list disconnected from real emissions.
+#[test]
+fn test_event_topic_naming_convention() {
+    use crate::naming_conventions::{is_snake_case, MAX_SYMBOL_LEN};
+
+    let expected_topics: &[&str] = &[
+        "init",
+        "caller_added",
+        "caller_removed",
+        "paused",
+        "unpaused",
+        "created",
+        "claimed",
+        "cancelled",
+        "admin_transfer_started",
+        "admin_transfer_completed",
+    ];
+
+    for name in expected_topics {
+        assert!(
+            is_snake_case(name),
+            "event topic `{name}` is not snake_case"
+        );
+        assert!(
+            name.len() <= MAX_SYMBOL_LEN,
+            "event topic `{name}` exceeds {MAX_SYMBOL_LEN} chars"
+        );
+    }
+}
+
 #[test]
 fn test_getters_before_initialization() {
     let env = Env::default();

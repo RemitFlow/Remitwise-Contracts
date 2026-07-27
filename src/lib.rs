@@ -19,6 +19,8 @@ mod types;
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]
+mod naming_conventions;
+#[cfg(test)]
 mod test;
 mod test_utils;
 

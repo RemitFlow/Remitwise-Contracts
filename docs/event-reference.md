@@ -19,3 +19,5 @@ This document describes all events emitted by the RemitFlow smart contract, deta
 
 ## Event Payload & Topic Stability Verification
 All events emitted by the contract are tested for topic alignment, payload structural integrity, and topic symbol stability inside the automated test suite under the `test_event_payload_contents` and `test_event_topics_stability` unit test cases.
+
+Topic names are also checked against the snake_case naming convention in `test_event_topic_naming_convention`; see [Naming Conventions](./naming-conventions.md).
