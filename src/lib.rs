@@ -5,8 +5,8 @@
 //! Senders lock token funds for a recipient with an expiry. The recipient can
 //! claim the funds; the sender can cancel and reclaim them after expiry.
 
-// soroban `#[contracttype]` generates Arbitrary impls under `testutils`,
-// which need `std`. Link it for test builds only; wasm builds stay no_std.
+// soroban #[contracttype] generates Arbitrary impls under 	estutils,
+// which need std. Link it for test builds only; wasm builds stay no_std.
 #[cfg(test)]
 extern crate std;
 
@@ -17,9 +17,9 @@ mod storage;
 mod types;
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
 mod fixtures;
+#[cfg(test)]
+mod test;
 mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
@@ -35,37 +35,22 @@ contractmeta!(
 );
 
 /// Largest token amount accepted for a single escrowed transfer.
-///
-/// Bounds individual transfers to guard against accidental or malicious
-/// outsized values while staying well within the token's `i128` range.
 pub const MAX_AMOUNT: i128 = 1_000_000_000_000_000_000;
 
 /// Maximum allowed distance, in seconds, between now and a transfer's expiry.
-///
-/// Caps how far in the future an escrow can be scheduled (roughly one year)
-/// so funds are not locked away indefinitely by an out-of-range expiry.
 pub const MAX_EXPIRY_WINDOW: u64 = 31_536_000;
 
 /// Global cap on the total escrowed amount.
-///
-/// Prevents the contract from accumulating an unbounded escrow balance.
 pub const MAX_ACCOUNT_OPS: u32 = 10_000;
 
 pub const MAX_TOTAL_ESCROWED: i128 = MAX_AMOUNT;
 
+/// Minimum cooldown in seconds between privileged administrative calls.
+pub const PRIVILEGED_COOLDOWN: u64 = 300;
+
 /// Maximum number of records returned by a paginated transfer query.
 pub const MAX_PAGE_SIZE: u32 = 100;
 
-/// Reject an address that resolves to the contract's own address.
-///
-/// Soroban has no zero/null `Address` a caller could accidentally supply, but
-/// the contract's own address is an equivalent footgun: it is trivially
-/// obtainable and can slip in wherever an integration substitutes a
-/// placeholder before a real external address is known. Accepting it as an
-/// admin, token, sender, recipient, allowlisted caller, or admin nominee
-/// would silently misconfigure the contract or lock funds and privileges out
-/// of reach, since the contract cannot `require_auth` on its own behalf from
-/// a top-level call.
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
         return Err(Error::InvalidAddress);
@@ -73,19 +58,24 @@ fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     Ok(())
 }
 
-/// Verify that the contract's actual token balance can still cover the
-/// amount its internal ledger believes is held in escrow.
-///
-/// `TotalEscrowed` is maintained incrementally by `create_transfer`,
-/// `claim_transfer`, and `cancel_transfer` rather than recomputed from the
-/// token balance on every call, so it can only be trusted if it is checked
-/// against reality. Comparing the two here, immediately after each mutation,
-/// catches a bookkeeping bug (a missed or double-applied update) at the
-/// point it is introduced instead of letting it compound silently until a
-/// later claim overpays or the escrow is found insolvent. It also catches
-/// the token contract itself under-delivering funds, e.g. a fee-on-transfer
-/// or rebasing token that credits the contract with less than the amount
-/// requested.
+/// Reject the call if a privileged operation was executed less than
+/// [PRIVILEGED_COOLDOWN] seconds ago.
+fn require_cooldown(env: &Env) -> Result<(), Error> {
+    let last = storage::get_last_privileged_call(env);
+    if last > 0 {
+        let now = env.ledger().timestamp();
+        if now.saturating_sub(last) < PRIVILEGED_COOLDOWN {
+            return Err(Error::CooldownNotElapsed);
+        }
+    }
+    Ok(())
+}
+
+/// Record that a privileged call just executed at the current ledger time.
+fn record_privileged_call(env: &Env) {
+    storage::set_last_privileged_call(env, env.ledger().timestamp());
+}
+
 fn assert_supply_invariant(env: &Env, token: &Address) -> Result<(), Error> {
     let balance = token::Client::new(env, token).balance(&env.current_contract_address());
     if balance < storage::get_total_escrowed(env) {
@@ -100,11 +90,6 @@ pub struct RemitFlowContract;
 
 #[contractimpl]
 impl RemitFlowContract {
-    /// Execute several transfer operations atomically in one contract call.
-    ///
-    /// Operations run in order. If any operation fails, the error is returned
-    /// and Soroban rolls back every token movement, storage write, and event
-    /// produced earlier in the batch.
     pub fn batch_operations(
         env: Env,
         operations: Vec<BatchOperation>,
@@ -136,18 +121,6 @@ impl RemitFlowContract {
         Ok(results)
     }
 
-    /// Initialize the contract with an administrator and token address.
-    ///
-    /// The provided address is treated as the custody holder for the contract's
-    /// administrative authority. The contract stores this address as the sole
-    /// admin and requires its authorization for privileged entrypoints. In
-    /// practice, this key should be managed off-chain with strong custody
-    /// controls because compromise would allow pause/unpause and allowlist
-    /// changes.
-    ///
-    /// Can only be called once; subsequent calls return
-    /// [`Error::AlreadyInitialized`]. Neither `admin` nor `token` may be the
-    /// contract's own address; either one returns [`Error::InvalidAddress`].
     pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), Error> {
         if storage::has_admin(&env) {
             return Err(Error::AlreadyInitialized);
@@ -164,26 +137,18 @@ impl RemitFlowContract {
         Ok(())
     }
 
-    /// Return the configured administrator address.
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         storage::get_admin(&env).ok_or(Error::NotInitialized)
     }
 
-    /// Return the configured token contract address.
     pub fn get_token(env: Env) -> Result<Address, Error> {
         storage::get_token(&env).ok_or(Error::NotInitialized)
     }
 
-    /// Return the ledger timestamp at which the contract was initialized.
     pub fn get_initialized_at(env: Env) -> Result<u64, Error> {
         storage::get_initialized_at(&env).ok_or(Error::NotInitialized)
     }
 
-    /// Return the token balances for a list of addresses in bulk.
-    ///
-    /// Queries the configured token contract for each address in `addresses`
-    /// and returns their current token balances in the same order. Returns
-    /// [`Error::NotInitialized`] if the contract has not been initialized.
     pub fn get_balances(env: Env, addresses: Vec<Address>) -> Result<Vec<i128>, Error> {
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
         let client = token::Client::new(&env, &token);
@@ -194,45 +159,32 @@ impl RemitFlowContract {
         Ok(balances)
     }
 
-    /// Return the number of transfers created so far.
     pub fn counter(env: Env) -> u64 {
         storage::get_counter(&env)
     }
 
-    /// Pause the contract, blocking creation of new transfers.
-    ///
-    /// The configured admin address is the only authority that may pause the
-    /// contract. Claims and cancellations of existing transfers remain
-    /// available while paused.
     pub fn pause(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, true);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::paused(&env, &admin);
         Ok(())
     }
 
-    /// Unpause the contract, re-enabling creation of new transfers.
-    ///
-    /// The configured admin address is the only authority that may unpause the
-    /// contract.
     pub fn unpause(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_paused(&env, false);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::unpaused(&env, &admin);
         Ok(())
     }
 
-    /// Create a new escrowed transfer from `from` to `recipient`.
-    ///
-    /// Transfers `amount` of the configured token from `from` into the
-    /// contract and records a pending transfer that expires at `expiry`.
-    /// Returns the new transfer's id. Neither `from` nor `recipient` may be
-    /// the contract's own address; either one returns
-    /// [`Error::InvalidAddress`].
     pub fn create_transfer(
         env: Env,
         from: Address,
@@ -299,12 +251,6 @@ impl RemitFlowContract {
         Ok(id)
     }
 
-    /// Claim a pending transfer, releasing its funds to the recipient.
-    ///
-    /// Only the recorded recipient may claim, the transfer must still be
-    /// pending, and the current ledger time must not exceed the expiry.
-    /// `recipient` may not be the contract's own address; returns
-    /// [`Error::InvalidAddress`] if it is.
     pub fn claim_transfer(env: Env, id: u64, recipient: Address) -> Result<(), Error> {
         require_external_address(&env, &recipient)?;
         let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
@@ -339,11 +285,6 @@ impl RemitFlowContract {
         Ok(())
     }
 
-    /// Cancel a pending transfer after expiry, refunding the sender.
-    ///
-    /// Only the original sender may cancel, the transfer must still be
-    /// pending, and the expiry must have passed. `from` may not be the
-    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn cancel_transfer(env: Env, id: u64, from: Address) -> Result<(), Error> {
         require_external_address(&env, &from)?;
         let mut transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
@@ -378,34 +319,24 @@ impl RemitFlowContract {
         Ok(())
     }
 
-    /// Return true if the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
         storage::get_paused(&env)
     }
 
-    /// Fetch the full transfer record for the given id.
     pub fn get_transfer(env: Env, id: u64) -> Result<Transfer, Error> {
         storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)
     }
 
-    /// Return true if a transfer with the given id has been recorded.
     pub fn transfer_exists(env: Env, id: u64) -> bool {
         storage::has_transfer(&env, id)
     }
 
-    /// Return just the lifecycle status of the transfer with the given id.
     pub fn get_status(env: Env, id: u64) -> Result<Status, Error> {
         storage::get_transfer(&env, id)
             .map(|transfer| transfer.status)
             .ok_or(Error::TransferNotFound)
     }
 
-    /// Return a page of transfer records starting at `start_id`.
-    ///
-    /// Collects up to `min(limit, MAX_PAGE_SIZE)` existing transfers with ids
-    /// in `start_id..=counter`, skipping any gaps. `start_id` is inclusive and
-    /// values below one are treated as one. A `limit` of zero, an empty
-    /// contract, or a start id beyond the counter yields an empty page.
     pub fn get_transfers_paged(env: Env, start_id: u64, limit: u32) -> Vec<Transfer> {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
@@ -423,10 +354,6 @@ impl RemitFlowContract {
         page
     }
 
-    /// Return the total token amount currently held in escrow.
-    ///
-    /// Sums the amounts of every transfer still in [`Status::Pending`] across
-    /// ids `1..=counter`. Uses saturating addition so the total never wraps.
     pub fn total_escrowed(env: Env) -> i128 {
         let last = storage::get_counter(&env);
         let mut total: i128 = 0;
@@ -442,35 +369,16 @@ impl RemitFlowContract {
         total
     }
 
-    /// Verify the contract's supply-accounting invariant on demand.
-    ///
-    /// Returns `Ok(())` when the contract's actual token balance can cover
-    /// its accounted `TotalEscrowed` liability, or
-    /// [`Error::SupplyInvariantViolation`] if the two have diverged. This is
-    /// the same check performed automatically after every entrypoint that
-    /// moves escrowed funds ([`create_transfer`](Self::create_transfer),
-    /// [`claim_transfer`](Self::claim_transfer),
-    /// [`cancel_transfer`](Self::cancel_transfer)); exposing it here lets
-    /// off-chain monitoring audit contract solvency independently, without
-    /// waiting for a mutating call to trip it.
     pub fn check_supply_invariant(env: Env) -> Result<(), Error> {
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
         assert_supply_invariant(&env, &token)
     }
 
-    /// Return true if the transfer with the given id has passed its expiry.
-    ///
-    /// Compares the transfer's `expiry` against the current ledger
-    /// timestamp; the lifecycle status is not considered.
     pub fn is_expired(env: Env, id: u64) -> Result<bool, Error> {
         let transfer = storage::get_transfer(&env, id).ok_or(Error::TransferNotFound)?;
         Ok(env.ledger().timestamp() > transfer.expiry)
     }
 
-    /// Count how many created transfers were funded by `from`.
-    ///
-    /// Scans transfer ids `1..=counter` and tallies records whose sender
-    /// matches `from`.
     pub fn count_for_sender(env: Env, from: Address) -> u64 {
         let last = storage::get_counter(&env);
         let mut count = 0u64;
@@ -486,10 +394,6 @@ impl RemitFlowContract {
         count
     }
 
-    /// Count how many created transfers target `recipient`.
-    ///
-    /// Scans transfer ids `1..=counter` and tallies records whose recipient
-    /// matches `recipient`.
     pub fn count_for_recipient(env: Env, recipient: Address) -> u64 {
         let last = storage::get_counter(&env);
         let mut count = 0u64;
@@ -505,10 +409,6 @@ impl RemitFlowContract {
         count
     }
 
-    /// Count how many created transfers currently hold the given status.
-    ///
-    /// Scans transfer ids `1..=counter` and tallies records whose
-    /// [`Status`] matches `status`.
     pub fn count_by_status(env: Env, status: Status) -> u64 {
         let last = storage::get_counter(&env);
         let mut count = 0u64;
@@ -524,82 +424,62 @@ impl RemitFlowContract {
         count
     }
 
-    /// Add a caller to the allowlist of privileged callers.
-    ///
-    /// Only the administrator may add callers. `caller` may not be the
-    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn add_caller(env: Env, caller: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         require_external_address(&env, &caller)?;
         storage::set_caller_allowed(&env, &caller, true);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::caller_added(&env, &caller);
         Ok(())
     }
 
-    /// Remove a caller from the allowlist of privileged callers.
-    ///
-    /// Only the administrator may remove callers.
     pub fn remove_caller(env: Env, caller: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         storage::set_caller_allowed(&env, &caller, false);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::caller_removed(&env, &caller);
         Ok(())
     }
 
-    /// Return true if the caller is on the privileged callers allowlist.
     pub fn is_caller_allowed(env: Env, caller: Address) -> bool {
         storage::is_caller_allowed(&env, &caller)
     }
 
-    /// Initiate a two-step admin ownership transfer by nominating a successor.
-    ///
-    /// Only the current administrator may call this. The nominee is stored as
-    /// the pending admin but the current admin retains all privileges until the
-    /// nominee calls [`accept_admin`]. Calling this a second time replaces any
-    /// previously nominated pending admin. `new_admin` may not be the
-    /// contract's own address; returns [`Error::InvalidAddress`] if it is.
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
         require_external_address(&env, &new_admin)?;
         storage::set_pending_admin(&env, &new_admin);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::admin_transfer_started(&env, &admin, &new_admin);
         Ok(())
     }
 
-    /// Complete a two-step admin ownership transfer.
-    ///
-    /// Must be called by the address previously nominated via [`transfer_admin`].
-    /// On success the nominee becomes the new administrator and the pending-admin
-    /// slot is cleared. Returns [`Error::NoPendingAdmin`] if no transfer has
-    /// been initiated.
     pub fn accept_admin(env: Env) -> Result<(), Error> {
+        require_cooldown(&env)?;
         let pending = storage::get_pending_admin(&env).ok_or(Error::NoPendingAdmin)?;
         pending.require_auth();
         let old_admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
         storage::set_admin(&env, &pending);
         storage::clear_pending_admin(&env);
+        record_privileged_call(&env);
         storage::extend_instance(&env);
         events::admin_transfer_completed(&env, &old_admin, &pending);
         Ok(())
     }
 
-    /// Return the nominated pending admin address, if a transfer is in progress.
-    ///
-    /// Returns `None` when no two-step transfer has been initiated.
     pub fn get_pending_admin(env: Env) -> Option<Address> {
         storage::get_pending_admin(&env)
     }
 
-    /// Return the contract's configured operational limits.
-    ///
-    /// Exposes system constants including maximum single transfer amount,
-    /// maximum expiry window, global total escrow cap, and maximum page size.
     pub fn get_limits(_env: Env) -> ConfiguredLimits {
         ConfiguredLimits {
             max_amount: MAX_AMOUNT,
