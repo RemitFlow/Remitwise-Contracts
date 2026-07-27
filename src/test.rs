@@ -1439,6 +1439,14 @@ fn test_event_payload_contents() {
     // 6. Admin transfer
     let new_admin = Address::generate(&s.env);
     s.client.transfer_admin(&new_admin); // emits "admin_transfer_started"
+
+    // transfer_admin is the first privileged call recorded at a nonzero
+    // timestamp (earlier ones all landed at t=0, which require_cooldown
+    // treats as "no prior call"); accept_admin is itself privileged, so it
+    // needs the cooldown to elapse first.
+    s.env
+        .ledger()
+        .with_mut(|l| l.timestamp += crate::PRIVILEGED_COOLDOWN + 1);
     s.client.accept_admin(); // emits "admin_transfer_completed"
 
     // Now retrieve all events
@@ -1996,6 +2004,10 @@ fn test_event_topics_stability() {
     // 5. transfer_admin & accept_admin
     let new_admin = Address::generate(&s.env);
     s.client.transfer_admin(&new_admin);
+    // See test_event_payload_contents for why this gap is required.
+    s.env
+        .ledger()
+        .with_mut(|l| l.timestamp += crate::PRIVILEGED_COOLDOWN + 1);
     s.client.accept_admin();
 
     let events = s.env.events().all();
@@ -2271,7 +2283,10 @@ fn test_sweep_expired_success() {
 
     let transfer = s.client.get_transfer(&id);
     assert_eq!(transfer.status, Status::Cancelled);
-    assert_eq!(s.token_client().balance(&s.from), initial_balance + DEFAULT_TRANSFER_AMOUNT);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        initial_balance + DEFAULT_TRANSFER_AMOUNT
+    );
 }
 
 #[test]

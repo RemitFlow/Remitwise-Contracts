@@ -53,4 +53,3 @@ pub enum Error {
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
 }
-
