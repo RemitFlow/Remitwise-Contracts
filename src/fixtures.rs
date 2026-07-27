@@ -53,6 +53,15 @@ impl FixtureBuilder {
         }
     }
 
+    /// Returns a handle to the same underlying host this builder will use
+    /// for `build()`. Use this to generate addresses that are compatible
+    /// with `with_sender`/`with_recipient`/`with_admin` — an `Address`
+    /// generated from an unrelated `Env::default()` belongs to a different
+    /// host and cannot be compared or used with this builder's contract.
+    pub fn env(&self) -> Env {
+        self.env.clone()
+    }
+
     pub fn with_sender_balance(mut self, balance: i128) -> Self {
         self.sender_balance = balance;
         self
@@ -109,9 +118,17 @@ impl FixtureBuilder {
     }
 
     pub fn build(self) -> (TestFixture<'static>, Env, RemitFlowContractClient<'static>) {
-        let token_contract = self.env.register_stellar_asset_contract_v2(self.admin.clone());
+        let token_contract = self
+            .env
+            .register_stellar_asset_contract_v2(self.admin.clone());
         let token = token_contract.address();
-        StellarAssetClient::new(&self.env, &token).mint(&self.from, &self.sender_balance);
+        // Cumulative transfers need at least `transfer_amount * num_transfers`
+        // funded; an explicit `with_sender_balance` above that is respected.
+        let required_balance = self
+            .transfer_amount
+            .saturating_mul(self.num_transfers as i128);
+        let minted_balance = self.sender_balance.max(required_balance);
+        StellarAssetClient::new(&self.env, &token).mint(&self.from, &minted_balance);
 
         let contract_id = self.env.register_contract(None, RemitFlowContract);
         let client = RemitFlowContractClient::new(&self.env, &contract_id);
@@ -246,10 +263,15 @@ mod tests {
 
     #[test]
     fn builder_with_custom_addresses_uses_them() {
-        let env = Env::default();
+        let builder = FixtureBuilder::new();
+        // Addresses must come from the builder's own host: an `Address`
+        // generated from an unrelated `Env::default()` belongs to a
+        // different host and can't be compared or used with this builder's
+        // contract (see `check_same_env` panics this previously triggered).
+        let env = builder.env();
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
-        let (_fixture, _env, client) = FixtureBuilder::new()
+        let (_fixture, _env, client) = builder
             .with_sender(sender.clone())
             .with_recipient(recipient.clone())
             .build();

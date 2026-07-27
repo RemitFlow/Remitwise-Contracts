@@ -740,4 +740,3 @@ impl RemitFlowContract {
         storage::get_goal_counter(&env)
     }
 }
-

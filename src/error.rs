@@ -65,4 +65,3 @@ pub enum Error {
     /// A withdrawal was attempted for more than the goal's current balance.
     InsufficientGoalBalance = 27,
 }
-
