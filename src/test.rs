@@ -9,7 +9,8 @@ use crate::test_utils::{
     TestFixture, DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
 use crate::types::{
-    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
+    BatchOperation, BatchOperationResult, ClaimTransferOperation, ConfiguredLimits,
+    CreateTransferOperation, Status,
 };
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
@@ -58,6 +59,84 @@ fn create_token<'a>(
 
 fn setup<'a>() -> TestFixture<'a> {
     TestFixture::new()
+}
+
+#[test]
+fn test_get_limits_returns_defaults() {
+    let s = setup();
+
+    assert_eq!(
+        s.client.get_limits(),
+        ConfiguredLimits {
+            max_amount: crate::MAX_AMOUNT,
+            max_expiry_window: crate::MAX_EXPIRY_WINDOW,
+            max_total_escrowed: crate::MAX_TOTAL_ESCROWED,
+            max_page_size: crate::MAX_PAGE_SIZE,
+        }
+    );
+}
+
+#[test]
+fn test_set_limits_emits_change_event() {
+    let s = setup();
+    let old_limits = s.client.get_limits();
+    let new_limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+
+    s.client.set_limits(&new_limits);
+
+    assert_eq!(s.client.get_limits(), new_limits);
+    let events = s.env.events().all();
+    let event = events.last().unwrap();
+    let topic: soroban_sdk::Symbol = event.1.get(0).unwrap().into_val(&s.env);
+    assert_eq!(topic, soroban_sdk::Symbol::new(&s.env, "limits_changed"));
+    assert_eq!(event.1.len(), 1);
+
+    let (admin, emitted_old, emitted_new): (Address, ConfiguredLimits, ConfiguredLimits) =
+        event.2.into_val(&s.env);
+    assert_eq!(admin, s.admin);
+    assert_eq!(emitted_old, old_limits);
+    assert_eq!(emitted_new, new_limits);
+}
+
+#[test]
+fn test_updated_limits_are_enforced() {
+    let s = setup();
+    let limits = ConfiguredLimits {
+        max_amount: 250,
+        max_expiry_window: crate::MAX_EXPIRY_WINDOW,
+        max_total_escrowed: crate::MAX_TOTAL_ESCROWED,
+        max_page_size: crate::MAX_PAGE_SIZE,
+    };
+    s.client.set_limits(&limits);
+
+    let result = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &251, &s.future_expiry());
+
+    assert_eq!(result, Err(Ok(crate::error::Error::AmountTooLarge)));
+}
+
+#[test]
+fn test_set_limits_rejects_invalid_configuration() {
+    let s = setup();
+    let original = s.client.get_limits();
+    let invalid = ConfiguredLimits {
+        max_amount: 0,
+        max_expiry_window: original.max_expiry_window,
+        max_total_escrowed: original.max_total_escrowed,
+        max_page_size: original.max_page_size,
+    };
+
+    assert_eq!(
+        s.client.try_set_limits(&invalid),
+        Err(Ok(crate::error::Error::InvalidLimits))
+    );
+    assert_eq!(s.client.get_limits(), original);
 }
 
 #[test]
@@ -2237,7 +2316,10 @@ fn test_sweep_expired_success() {
 
     let transfer = s.client.get_transfer(&id);
     assert_eq!(transfer.status, Status::Cancelled);
-    assert_eq!(s.token_client().balance(&s.from), initial_balance + DEFAULT_TRANSFER_AMOUNT);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        initial_balance + DEFAULT_TRANSFER_AMOUNT
+    );
 }
 
 #[test]

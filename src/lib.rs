@@ -53,6 +53,15 @@ pub const MAX_PAGE_SIZE: u32 = 100;
 /// Maximum number of operations allowed in a single batch_operations call.
 pub const MAX_BATCH_SIZE: u32 = 50;
 
+fn default_limits() -> ConfiguredLimits {
+    ConfiguredLimits {
+        max_amount: MAX_AMOUNT,
+        max_expiry_window: MAX_EXPIRY_WINDOW,
+        max_total_escrowed: MAX_TOTAL_ESCROWED,
+        max_page_size: MAX_PAGE_SIZE,
+    }
+}
+
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
         return Err(Error::InvalidAddress);
@@ -137,6 +146,7 @@ impl RemitFlowContract {
         storage::set_token(&env, &token);
         storage::set_counter(&env, 0);
         storage::set_initialized_at(&env, env.ledger().timestamp());
+        storage::set_limits(&env, &default_limits());
         storage::extend_instance(&env);
         events::init(&env, &admin, &token);
         Ok(())
@@ -209,23 +219,24 @@ impl RemitFlowContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        let limits = storage::get_limits(&env).unwrap_or_else(default_limits);
         if storage::get_account_op_count(&env, &from) >= MAX_ACCOUNT_OPS {
             return Err(Error::AccountLimitReached);
         }
-        if amount > MAX_AMOUNT {
+        if amount > limits.max_amount {
             return Err(Error::AmountTooLarge);
         }
         let total_escrowed = storage::get_total_escrowed(&env);
         let updated_total =
             math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
-        if updated_total > MAX_TOTAL_ESCROWED {
+        if updated_total > limits.max_total_escrowed {
             return Err(Error::EscrowCapReached);
         }
         let now = env.ledger().timestamp();
         if expiry <= now {
             return Err(Error::InvalidExpiry);
         }
-        if expiry - now > MAX_EXPIRY_WINDOW {
+        if expiry - now > limits.max_expiry_window {
             return Err(Error::ExpiryTooFar);
         }
         if from == recipient {
@@ -346,7 +357,11 @@ impl RemitFlowContract {
         let last = storage::get_counter(&env);
         let mut page = Vec::new(&env);
         let mut id = start_id.max(1);
-        let page_size = limit.min(MAX_PAGE_SIZE);
+        let page_size = limit.min(
+            storage::get_limits(&env)
+                .unwrap_or_else(default_limits)
+                .max_page_size,
+        );
         while id <= last && page.len() < page_size {
             if let Some(transfer) = storage::get_transfer(&env, id) {
                 page.push_back(transfer);
@@ -485,13 +500,35 @@ impl RemitFlowContract {
         storage::get_pending_admin(&env)
     }
 
-    pub fn get_limits(_env: Env) -> ConfiguredLimits {
-        ConfiguredLimits {
-            max_amount: MAX_AMOUNT,
-            max_expiry_window: MAX_EXPIRY_WINDOW,
-            max_total_escrowed: MAX_TOTAL_ESCROWED,
-            max_page_size: MAX_PAGE_SIZE,
+    pub fn set_limits(env: Env, limits: ConfiguredLimits) -> Result<(), Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let old_limits = storage::get_limits(&env).unwrap_or_else(default_limits);
+        if limits == old_limits {
+            return Ok(());
         }
+        require_cooldown(&env)?;
+
+        if limits.max_amount <= 0
+            || limits.max_expiry_window == 0
+            || limits.max_total_escrowed <= 0
+            || limits.max_page_size == 0
+            || limits.max_amount > limits.max_total_escrowed
+            || limits.max_total_escrowed < storage::get_total_escrowed(&env)
+        {
+            return Err(Error::InvalidLimits);
+        }
+
+        storage::set_limits(&env, &limits);
+        record_privileged_call(&env);
+        storage::extend_instance(&env);
+        events::limits_changed(&env, &admin, &old_limits, &limits);
+        Ok(())
+    }
+
+    pub fn get_limits(env: Env) -> ConfiguredLimits {
+        storage::get_limits(&env).unwrap_or_else(default_limits)
     }
 
     /// Sweeps an expired transfer, returning the escrowed funds to the original sender.
@@ -533,4 +570,3 @@ impl RemitFlowContract {
         Ok(())
     }
 }
-

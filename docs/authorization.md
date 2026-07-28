@@ -9,6 +9,7 @@ Only the configured administrator address can perform administrative operations.
 * `pause` / `unpause`
 * `add_caller` / `remove_caller`
 * `transfer_admin`
+* `set_limits`
 
 ## Admin Ownership Transfer (Two-Step)
 
@@ -39,7 +40,10 @@ Recommended custody practices:
 * Prefer a multisig or timelock arrangement for any administrative action that would materially affect operations.
 * Keep the admin key materially segregated from day-to-day operational keys and rotate or recover it through a documented process.
 
-Security note: compromise of the admin key can pause the contract and change the allowlist, but it cannot directly withdraw escrowed funds from the contract.
+Security note: compromise of the admin key can pause the contract, change the
+allowlist, and change operational limits, but it cannot directly withdraw
+escrowed funds from the contract. A new global escrow limit cannot be set below
+the amount already held in escrow.
 
 ## Privileged Callers Allowlist
 The contract maintains an allowlist of privileged callers who are authorized to lock funds and create new escrow transfers.

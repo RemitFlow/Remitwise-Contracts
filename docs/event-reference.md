@@ -14,6 +14,7 @@ This document describes all events emitted by the RemitFlow smart contract, deta
 | `created` | `("created", id: u64)` | `(from: Address, recipient: Address, amount: i128, expiry: u64)` | A new transfer is created and funds escrowed. |
 | `claimed` | `("claimed", id: u64)` | `(recipient: Address, amount: i128)` | Recipient claims escrowed transfer. |
 | `cancelled` | `("cancelled", id: u64)` | `(from: Address, amount: i128)` | Sender cancels and receives a refund for an expired transfer. |
+| `limits_changed` | `("limits_changed",)` | `(admin: Address, old_limits: ConfiguredLimits, new_limits: ConfiguredLimits)` | Admin changes the contract's operational limits. |
 | `admin_transfer_started` | `("admin_transfer_started",)` | `(current_admin: Address, pending_admin: Address)` | Admin initiates ownership transfer. |
 | `admin_transfer_completed` | `("admin_transfer_completed",)` | `(old_admin: Address, new_admin: Address)` | Pending admin accepts ownership transfer. |
 
