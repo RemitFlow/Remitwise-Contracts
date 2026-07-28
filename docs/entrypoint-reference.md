@@ -107,8 +107,8 @@ Returns a bounded page of transfer records ordered by ascending transfer id.
 
 * **Authorization**: None (public view)
 * **Cursor**: `start_id` is inclusive; `0` is treated as transfer id `1`
-* **Page size**: Returns at most `min(limit, MAX_PAGE_SIZE)`, where
-  `MAX_PAGE_SIZE` is 100
+* **Page size**: Returns at most `min(limit, configured max_page_size)`, where
+  the default `max_page_size` is 100 (see [`get_limits`](#get_limits---configuredlimits))
 * **Empty pages**: Returns an empty vector when `limit` is zero, no transfers
   exist, or `start_id` is beyond the current transfer counter
 * **Next page**: If a full page is returned, pass the last returned transfer
@@ -116,11 +116,24 @@ Returns a bounded page of transfer records ordered by ascending transfer id.
 
 ## Operational Configuration & Resource Queries
 
+### `set_limits(limits: ConfiguredLimits) -> Result<(), Error>`
+
+Updates the operational limits enforced for new transfers and paginated queries.
+
+* **Authorization**: Current admin (`admin.require_auth()`)
+* **Effect**: Stores the new `max_amount`, `max_expiry_window`,
+  `max_total_escrowed`, and `max_page_size` values in instance storage.
+* **Validation**: Every value must be positive, `max_amount` cannot exceed
+  `max_total_escrowed`, and `max_total_escrowed` cannot be lower than the
+  amount currently held in escrow.
+* **Events**: Emits `limits_changed` with the admin address and the complete
+  old and new [`ConfiguredLimits`](data-types.md#configuredlimits) values.
+  Supplying the current configuration is a no-op and emits no event.
+* **Errors**: `NotInitialized`, `InvalidLimits`, or `CooldownNotElapsed`.
+
 ### `get_limits() -> ConfiguredLimits`
 
 Returns the contract's configured operational limits.
 
 * **Authorization**: None (public view, callable pre/post-initialization)
 * **Returns**: [`ConfiguredLimits`](data-types.md#configuredlimits) containing `max_amount`, `max_expiry_window`, `max_total_escrowed`, and `max_page_size`.
-
-

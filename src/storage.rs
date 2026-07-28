@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::Transfer;
+use crate::types::{ConfiguredLimits, Transfer};
 
 /// Number of ledgers used as the threshold before bumping instance TTL.
 pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
@@ -20,8 +20,8 @@ pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
 /// # Collision safety
 /// Soroban serialises #[contracttype] enum keys as an XDR ScVec whose
 /// first element is the variant name as a Symbol. Because the name string is
-/// part of the on-chain key, no two distinct variants — even with identical
-/// payloads — can ever collide. Separating instance and persistent keys into
+/// part of the on-chain key, no two distinct variants  even with identical
+/// payloads  can ever collide. Separating instance and persistent keys into
 /// two enums makes a mis-routed write (e.g. passing an [InstanceKey] to the
 /// persistent store) a compile error rather than a silent bug.
 #[contracttype]
@@ -48,6 +48,8 @@ pub enum InstanceKey {
     InitializedAt,
     /// Timestamp of the most recent privileged administrative call.
     LastPrivilegedCall,
+    /// Mutable operational limits enforced by the contract.
+    Limits,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -191,6 +193,16 @@ pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
     env.storage()
         .instance()
         .set(&InstanceKey::LastPrivilegedCall, &timestamp);
+}
+
+/// Read the configured operational limits, if they have been stored.
+pub fn get_limits(env: &Env) -> Option<ConfiguredLimits> {
+    env.storage().instance().get(&InstanceKey::Limits)
+}
+
+/// Persist the operational limits in instance storage.
+pub fn set_limits(env: &Env, limits: &ConfiguredLimits) {
+    env.storage().instance().set(&InstanceKey::Limits, limits);
 }
 
 // ---------------------------------------------------------------------------

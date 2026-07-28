@@ -57,6 +57,8 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 | `Counter` | `u64` | Monotonically increasing id issued to the next transfer |
 | `Paused` | `bool` | When `true`, `create_transfer` is blocked |
 | `InitializedAt` | `u64` | Ledger timestamp at which `initialize` was called |
+| `LastPrivilegedCall` | `u64` | Timestamp of the most recent privileged administrative call |
+| `Limits` | `ConfiguredLimits` | Mutable operational limits enforced for new transfers and pagination |
 
 ### `PersistentKey` — persistent storage
 

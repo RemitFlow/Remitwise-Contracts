@@ -1,5 +1,7 @@
 use soroban_sdk::{Address, Env, Symbol};
 
+use crate::types::ConfiguredLimits;
+
 /// Publish an event recording contract initialization.
 pub fn init(env: &Env, admin: &Address, token: &Address) {
     let topics = (Symbol::new(env, "init"),);
@@ -67,4 +69,18 @@ pub fn admin_transfer_completed(env: &Env, old_admin: &Address, new_admin: &Addr
     let topics = (Symbol::new(env, "admin_transfer_completed"),);
     env.events()
         .publish(topics, (old_admin.clone(), new_admin.clone()));
+}
+
+/// Publish an event recording an administrator's operational-limit update.
+pub fn limits_changed(
+    env: &Env,
+    admin: &Address,
+    old_limits: &ConfiguredLimits,
+    new_limits: &ConfiguredLimits,
+) {
+    let topics = (Symbol::new(env, "limits_changed"),);
+    env.events().publish(
+        topics,
+        (admin.clone(), old_limits.clone(), new_limits.clone()),
+    );
 }

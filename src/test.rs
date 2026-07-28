@@ -9,7 +9,8 @@ use crate::test_utils::{
     TestFixture, DEFAULT_EXPIRY_OFFSET, DEFAULT_SENDER_BALANCE, DEFAULT_TRANSFER_AMOUNT,
 };
 use crate::types::{
-    BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
+    BatchOperation, BatchOperationResult, ClaimTransferOperation, ConfiguredLimits,
+    CreateTransferOperation, Status,
 };
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
@@ -58,6 +59,95 @@ fn create_token<'a>(
 
 fn setup<'a>() -> TestFixture<'a> {
     TestFixture::new()
+}
+
+#[test]
+fn test_get_limits_returns_defaults() {
+    let s = setup();
+
+    assert_eq!(
+        s.client.get_limits(),
+        ConfiguredLimits {
+            max_amount: crate::MAX_AMOUNT,
+            max_expiry_window: crate::MAX_EXPIRY_WINDOW,
+            max_total_escrowed: crate::MAX_TOTAL_ESCROWED,
+            max_page_size: crate::MAX_PAGE_SIZE,
+        }
+    );
+}
+
+#[test]
+fn test_set_limits_by_admin_succeeds() {
+    let s = setup();
+    let new_limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+
+    s.client.set_limits(&new_limits);
+    assert_eq!(s.client.get_limits(), new_limits);
+}
+
+#[test]
+fn test_set_limits_requires_admin_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+    client.initialize(&admin, &token);
+    let original = client.get_limits();
+    env.set_auths(&[]);
+
+    let new_limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+    let res = client.try_set_limits(&new_limits);
+    assert!(res.is_err());
+    assert_eq!(client.get_limits(), original);
+}
+
+#[test]
+fn test_updated_limits_are_enforced() {
+    let s = setup();
+    let limits = ConfiguredLimits {
+        max_amount: 250,
+        max_expiry_window: crate::MAX_EXPIRY_WINDOW,
+        max_total_escrowed: crate::MAX_TOTAL_ESCROWED,
+        max_page_size: crate::MAX_PAGE_SIZE,
+    };
+    s.client.set_limits(&limits);
+
+    let result = s
+        .client
+        .try_create_transfer(&s.from, &s.recipient, &251, &s.future_expiry());
+
+    assert_eq!(result, Err(Ok(crate::error::Error::AmountTooLarge)));
+}
+
+#[test]
+fn test_set_limits_rejects_invalid_configuration() {
+    let s = setup();
+    let original = s.client.get_limits();
+    let invalid = ConfiguredLimits {
+        max_amount: 0,
+        max_expiry_window: original.max_expiry_window,
+        max_total_escrowed: original.max_total_escrowed,
+        max_page_size: original.max_page_size,
+    };
+
+    assert_eq!(
+        s.client.try_set_limits(&invalid),
+        Err(Ok(crate::error::Error::InvalidLimits))
+    );
+    assert_eq!(s.client.get_limits(), original);
 }
 
 #[test]
@@ -994,6 +1084,15 @@ fn test_admin_operations_require_initialization() {
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 
     let res = client.try_unpause();
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+
+    let limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+    let res = client.try_set_limits(&limits);
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 }
 

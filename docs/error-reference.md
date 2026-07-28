@@ -12,7 +12,7 @@ meaning, and the entrypoints that can produce it.
 | Code | Variant | Description | Returned By |
 |------|---------|-------------|-------------|
 | 1 | `AlreadyInitialized` | The contract has already been initialised with an admin and token address. Second calls to `initialize` are rejected. | `initialize` |
-| 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller` |
+| 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller`, `set_limits` |
 | 3 | `TransferNotFound` | No record exists for the supplied transfer `id`. Either the id was never created or it was assigned to a transfer that was purged. | `get_transfer`, `get_status`, `transfer_exists`, `is_expired`, `claim_transfer`, `cancel_transfer` |
 | 4 | `InvalidAmount` | The supplied transfer `amount` is not strictly positive (zero or negative). | `create_transfer` |
 | 5 | `InvalidExpiry` | The supplied `expiry` timestamp is not in the future â€” it must be strictly greater than the current ledger timestamp. | `create_transfer` |
@@ -31,6 +31,7 @@ meaning, and the entrypoints that can produce it.
 | 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
 | 20 | `SupplyInvariantViolation` | The contract's actual token balance is less than its internally tracked `TotalEscrowed` liability. Checked automatically after every entrypoint that moves escrowed funds; see [Invariants](./invariants.md). | `create_transfer`, `claim_transfer`, `cancel_transfer`, `check_supply_invariant` |
 | 21 | `BatchTooLarge` | The number of operations in a `batch_operations` call exceeds `MAX_BATCH_SIZE`. | `batch_operations` |
+| 22 | `InvalidLimits` | One or more fields in the supplied `ConfiguredLimits` are invalid (non-positive values, `max_amount` above `max_total_escrowed`, or `max_total_escrowed` below the amount already held in escrow). | `set_limits` |
 
 ---
 
@@ -50,6 +51,7 @@ meaning, and the entrypoints that can produce it.
 | `check_supply_invariant` | `NotInitialized` (2), `SupplyInvariantViolation` (20) |
 | `transfer_admin` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `accept_admin` | `NoPendingAdmin` (17), `NotInitialized` (2) |
+| `set_limits` | `NotInitialized` (2), `InvalidLimits` (22), `CooldownNotElapsed` (21) |
 | `get_pending_admin` | Noneâ€  |
 | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)â€¡ |
 | `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | Noneâ€  |

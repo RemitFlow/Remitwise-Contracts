@@ -49,6 +49,11 @@ The contract includes comprehensive unit tests organized by functionality:
 - **test_count_by_status_tracks_lifecycle**: Tests transfer status counting
 - **test_get_limits_returns_configured_constants**: Confirms `get_limits` returns configured bounds (`MAX_AMOUNT`, `MAX_EXPIRY_WINDOW`, `MAX_TOTAL_ESCROWED`, `MAX_PAGE_SIZE`)
 - **test_get_limits_works_uninitialized**: Verifies `get_limits` can be queried before contract initialization
+- **test_get_limits_returns_defaults**: Confirms initialized contracts expose the default `ConfiguredLimits`
+- **test_set_limits_by_admin_succeeds**: Confirms the admin can update operational limits when authorized
+- **test_set_limits_requires_admin_auth**: Verifies `set_limits()` rejects callers that do not satisfy `admin.require_auth()`, leaving stored limits unchanged
+- **test_updated_limits_are_enforced**: Ensures newly configured `max_amount` is applied by `create_transfer`
+- **test_set_limits_rejects_invalid_configuration**: Ensures invalid `ConfiguredLimits` return `InvalidLimits` without mutating state
 
 - **test_get_balances_returns_balances_in_order**: Validates bulk-reading token balances for a list of addresses
 - **test_get_balances_empty_addresses_list**: Verifies get_balances with an empty address vector

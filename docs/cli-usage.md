@@ -194,6 +194,15 @@ stellar contract invoke --id $CONTRACT_ID --network $NETWORK \
 # Get configured limits
 stellar contract invoke --id $CONTRACT_ID --network $NETWORK -- get_limits
 
+# Update operational limits (admin only)
+stellar contract invoke --id $CONTRACT_ID --network $NETWORK --source-account $ADMIN \
+  -- set_limits --limits '{
+    "max_amount": "500",
+    "max_expiry_window": "2000",
+    "max_total_escrowed": "2000",
+    "max_page_size": 25
+  }'
+
 ```
 
 ---

@@ -52,5 +52,7 @@ pub enum Error {
     /// The number of operations in a atch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 21,
+    /// One or more configured operational limits are invalid.
+    InvalidLimits = 22,
 }
 
