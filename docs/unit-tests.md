@@ -96,6 +96,11 @@ These tests specifically validate authorization mechanisms for admin-only operat
 - **test_unpause_requires_admin_auth**: Verifies unpause() enforces admin authentication
 - **test_admin_guard_on_pause_with_mock_all_auths**: Tests pause/unpause with authentication mocking
 
+### Limit-Change Authorization
+- **test_set_limits_requires_admin_auth**: Verifies `set_limits()` rejects callers that do not satisfy `admin.require_auth()`, leaving stored limits unchanged
+- **test_set_limits_by_admin_succeeds**: Confirms the admin can update operational limits when authorization is present
+- **test_admin_operations_require_initialization**: Also covers `set_limits()` returning `NotInitialized` before `initialize()`
+
 ### Operational Constraints
 - **test_admin_operations_require_initialization**: Ensures admin operations fail if contract not initialized
 - **test_non_admin_cannot_pause_twice**: Tests state consistency for pause operations

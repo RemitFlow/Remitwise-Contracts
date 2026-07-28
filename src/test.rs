@@ -904,6 +904,44 @@ fn test_add_caller_requires_admin_auth() {
 }
 
 #[test]
+fn test_set_limits_requires_admin_auth() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token, _, _) = create_token(&env, &admin);
+
+    let contract_id = env.register_contract(None, RemitFlowContract);
+    let client = RemitFlowContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+    client.initialize(&admin, &token);
+    let original = client.get_limits();
+    env.set_auths(&[]);
+
+    let new_limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+    let res = client.try_set_limits(&new_limits);
+    assert!(res.is_err());
+    assert_eq!(client.get_limits(), original);
+}
+
+#[test]
+fn test_set_limits_by_admin_succeeds() {
+    let s = setup();
+    let new_limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+
+    s.client.set_limits(&new_limits);
+    assert_eq!(s.client.get_limits(), new_limits);
+}
+
+#[test]
 fn test_pause_requires_admin_auth() {
     let s = setup();
     let non_admin = Address::generate(&s.env);
@@ -1073,6 +1111,15 @@ fn test_admin_operations_require_initialization() {
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 
     let res = client.try_unpause();
+    assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
+
+    let limits = ConfiguredLimits {
+        max_amount: 500,
+        max_expiry_window: 2_000,
+        max_total_escrowed: 2_000,
+        max_page_size: 25,
+    };
+    let res = client.try_set_limits(&limits);
     assert_eq!(res, Err(Ok(crate::error::Error::NotInitialized)));
 }
 

@@ -38,6 +38,7 @@ Admin-only guards are authorization checks that restrict certain contract operat
 1. **initialize()** - Sets up the contract with an admin and token address
 2. **pause()** - Blocks creation of new transfers
 3. **unpause()** - Re-enables transfer creation
+4. **set_limits()** - Updates operational transfer and pagination limits
 
 ### Testing Admin Authorization
 
@@ -95,11 +96,24 @@ fn test_unpause_requires_admin_auth() {
 }
 ```
 
+#### Limit-Change Guards
+```rust
+#[test]
+fn test_set_limits_requires_admin_auth() {
+    // Verifies set_limits() checks admin.require_auth() and does not mutate state
+}
+
+#[test]
+fn test_set_limits_by_admin_succeeds() {
+    // Verifies the admin can update ConfiguredLimits when authorized
+}
+```
+
 #### Operational State Guards
 ```rust
 #[test]
 fn test_admin_operations_require_initialization() {
-    // Ensures pause, unpause, and other admin ops fail when contract is not initialized
+    // Ensures pause, unpause, set_limits, and other admin ops fail when contract is not initialized
 }
 ```
 
