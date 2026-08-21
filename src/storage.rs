@@ -20,8 +20,8 @@ pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
 /// # Collision safety
 /// Soroban serialises #[contracttype] enum keys as an XDR ScVec whose
 /// first element is the variant name as a Symbol. Because the name string is
-/// part of the on-chain key, no two distinct variants — even with identical
-/// payloads — can ever collide. Separating instance and persistent keys into
+/// part of the on-chain key, no two distinct variants - even with identical
+/// payloads - can ever collide. Separating instance and persistent keys into
 /// two enums makes a mis-routed write (e.g. passing an [InstanceKey] to the
 /// persistent store) a compile error rather than a silent bug.
 #[contracttype]
