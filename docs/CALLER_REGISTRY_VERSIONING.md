@@ -247,3 +247,28 @@ For emergency recovery, use the existing admin handoff flow, confirm the new
 administrator through an independent channel, and then resume at the value
 returned by `caller_registry_version`. Never reset the version by redeploying
 an application-side counter.
+
+The minimum evidence bundle for a caller change is the signed request, the
+finalized transaction, the returned versioned result, the indexed event, and a
+post-change membership query. Retain this bundle under the same change ID as
+the integration release. It gives security reviewers a complete chain from
+approval to effective access and makes duplicate retries distinguishable from
+new grants.
+
+Keep access-change alerts separate from transfer-volume alerts. A grant or
+removal is high impact even when no transfer follows immediately. Alert on
+unexpected administrators, unknown caller addresses, version gaps, repeated
+stale requests, and a caller that attempts a mutation after removal. These
+signals provide early warning without exposing private transfer amounts.
+
+Before a release, run a dry governance review against a disposable deployment:
+apply an add, repeat it, attempt a skipped version, advance time, remove the
+caller, and attempt a new transfer. Compare storage queries and event counts at
+each step. This rehearsal catches client-side version and cooldown mistakes
+before they affect the production registry.
+
+The review record should state whether the change is a grant or removal, which
+service owns the key, and who approved the effective time. Treat missing review
+metadata as a deployment blocker rather than filling it with an inferred value.
+
+This preserves a human-auditable boundary around automated access changes.
