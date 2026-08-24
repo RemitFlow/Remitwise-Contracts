@@ -272,3 +272,12 @@ service owns the key, and who approved the effective time. Treat missing review
 metadata as a deployment blocker rather than filling it with an inferred value.
 
 This preserves a human-auditable boundary around automated access changes.
+
+Store the evidence bundle with restricted administrative access, apply the
+repository retention policy, and redact private signing material before sharing
+the record with support or an external auditor. The contract event is public;
+the approval context does not need to be.
+
+Reviewers should verify the event topic and payload against the ABI after every
+upgrade. A changed topic or field order can break monitoring even when the
+membership transition itself remains correct.
