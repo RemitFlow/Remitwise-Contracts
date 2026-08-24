@@ -825,6 +825,117 @@ fn test_add_caller_requires_admin_auth() {
 }
 
 #[test]
+fn test_versioned_caller_update_starts_at_one_and_is_auditable() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+
+    assert_eq!(s.client.caller_registry_version(), 0);
+    let result = s.client.update_caller_versioned(&caller, &true, &1);
+    assert_eq!(result.changed, true);
+    assert_eq!(result.duplicate, false);
+    assert_eq!(result.version, 1);
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+
+    let matching_events = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            let topics: soroban_sdk::Vec<soroban_sdk::Val> = event.1.clone().into_val(&s.env);
+            if topics.len() == 0 {
+                return false;
+            }
+            let topic: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+            topic == soroban_sdk::Symbol::new(&s.env, "caller_registry_changed")
+        })
+        .count();
+    assert_eq!(matching_events, 1);
+}
+
+#[test]
+fn test_exact_versioned_caller_retry_is_deterministic_without_second_event() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    let first = s.client.update_caller_versioned(&caller, &true, &1);
+    let retry = s.client.update_caller_versioned(&caller, &true, &1);
+
+    assert_eq!(first.changed, true);
+    assert_eq!(retry.changed, false);
+    assert_eq!(retry.duplicate, true);
+    assert_eq!(retry.version, 1);
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_versioned_remove_is_one_transition_and_blocks_new_mutations() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.client.update_caller_versioned(&caller, &true, &1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let removed = s.client.update_caller_versioned(&caller, &false, &2);
+    assert_eq!(removed.changed, true);
+    assert_eq!(removed.version, 2);
+    assert!(!s.client.is_caller_allowed(&caller));
+
+    let expiry = s.future_expiry();
+    let result = s.client.try_create_transfer(&caller, &s.recipient, &100, &expiry);
+    assert_eq!(result, Err(Ok(crate::error::Error::CallerNotAllowed)));
+}
+
+#[test]
+fn test_stale_version_does_not_change_registry_or_membership() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.client.update_caller_versioned(&caller, &true, &1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+
+    let stale = s.client.try_update_caller_versioned(&caller, &false, &3);
+    assert_eq!(stale, Err(Ok(crate::error::Error::StaleCallerUpdate)));
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_cooldown_failure_does_not_consume_next_version() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.env.ledger().set_timestamp(1_000);
+    s.client.update_caller_versioned(&caller, &true, &1);
+
+    let blocked = s.client.try_update_caller_versioned(&caller, &false, &2);
+    assert_eq!(blocked, Err(Ok(crate::error::Error::CooldownNotElapsed)));
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let accepted = s.client.update_caller_versioned(&caller, &false, &2);
+    assert_eq!(accepted.changed, true);
+    assert!(!s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_distinct_callers_share_ordered_registry_versions() {
+    let s = setup();
+    let first = Address::generate(&s.env);
+    let second = Address::generate(&s.env);
+    let third = Address::generate(&s.env);
+    let first_result = s.client.update_caller_versioned(&first, &true, &1);
+    assert_eq!(first_result.version, 1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let second_result = s.client.update_caller_versioned(&second, &true, &2);
+    assert_eq!(second_result.version, 2);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let third_result = s.client.update_caller_versioned(&third, &true, &3);
+    assert_eq!(third_result.version, 3);
+    assert!(s.client.is_caller_allowed(&first));
+    assert!(s.client.is_caller_allowed(&second));
+    assert!(s.client.is_caller_allowed(&third));
+}
+
+#[test]
 fn test_pause_requires_admin_auth() {
     let s = setup();
     let non_admin = Address::generate(&s.env);

@@ -25,7 +25,7 @@ mod test_utils;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
-use crate::types::{BatchOperation, BatchOperationResult, ConfiguredLimits, Status, Transfer};
+use crate::types::{BatchOperation, BatchOperationResult, CallerUpdateResult, ConfiguredLimits, Status, Transfer};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -454,6 +454,53 @@ impl RemitFlowContract {
 
     pub fn is_caller_allowed(env: Env, caller: Address) -> bool {
         storage::is_caller_allowed(&env, &caller)
+    }
+
+    /// Apply an admin-authorized caller update at the next registry version.
+    ///
+    /// Replaying the exact `(version, caller, allowed)` tuple is deterministic
+    /// and produces no second event. Different stale updates are rejected.
+    pub fn update_caller_versioned(
+        env: Env,
+        caller: Address,
+        allowed: bool,
+        version: u64,
+    ) -> Result<CallerUpdateResult, Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        require_external_address(&env, &caller)?;
+        if storage::has_caller_update(&env, version, &caller, allowed) {
+            return Ok(CallerUpdateResult {
+                changed: false,
+                duplicate: true,
+                version: storage::get_caller_registry_version(&env),
+            });
+        }
+        require_cooldown(&env)?;
+        let current = storage::get_caller_registry_version(&env);
+        let expected = current.checked_add(1).ok_or(Error::CallerUpdateVersionOverflow)?;
+        if version != expected {
+            return Err(Error::StaleCallerUpdate);
+        }
+
+        // The membership bit, version, replay marker, cooldown, and event are
+        // one state transition. A trapped call rolls all of them back.
+        storage::set_caller_allowed(&env, &caller, allowed);
+        storage::set_caller_registry_version(&env, version);
+        storage::set_caller_update(&env, version, &caller, allowed);
+        record_privileged_call(&env);
+        storage::extend_instance(&env);
+        events::caller_registry_changed(&env, version, &admin, &caller, allowed);
+        Ok(CallerUpdateResult {
+            changed: true,
+            duplicate: false,
+            version,
+        })
+    }
+
+    /// Return the monotonic version of the allowed-caller registry.
+    pub fn caller_registry_version(env: Env) -> u64 {
+        storage::get_caller_registry_version(&env)
     }
 
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
