@@ -217,3 +217,33 @@ tests. No test is disabled or deleted by this change.
 - [ ] Rollback preserves registry version and markers.
 - [ ] Indexers alert on version gaps.
 - [ ] Full CI passes without skipped checks.
+
+## Operator runbook
+
+When adding an integration, record the approval ticket, administrator identity,
+requested version, caller address, and intended membership state before signing.
+After finalization, compare the returned `CallerUpdateResult` with the indexed
+event and query `is_caller_allowed`. Keep the transaction hash with the change
+record so an incident responder can reconstruct the exact authorization.
+
+When removing an integration, stop its outbound queue first, submit the versioned
+removal, wait for finality, and then verify a new transfer attempt is rejected.
+Do not reuse the removed address for another integration without a new approval.
+Existing pending transfers should be reconciled separately; removal is not a
+retroactive transfer cancellation mechanism.
+
+If an indexer observes version 7 after version 5, pause automated governance
+updates and inspect the missing ledger range. Do not “repair” the index by
+inventing an event. The chain event and current contract query are authoritative,
+and a future accepted update must still use version 8.
+
+For a suspected replay, compare the tuple in the client logs with the persistent
+event payload and the administrator's signed authorization. An exact retry is
+expected to return duplicate and emit nothing. A changed caller, boolean, or
+version is a different request and should be handled as a governance decision,
+not as a harmless retry.
+
+For emergency recovery, use the existing admin handoff flow, confirm the new
+administrator through an independent channel, and then resume at the value
+returned by `caller_registry_version`. Never reset the version by redeploying
+an application-side counter.
