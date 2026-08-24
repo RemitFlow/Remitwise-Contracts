@@ -20,9 +20,11 @@ mod types;
 mod fixtures;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_upgrade;
 mod test_utils;
 
-use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, BytesN, Env, Vec};
 
 use crate::error::Error;
 use crate::types::{BatchOperation, BatchOperationResult, ConfiguredLimits, Status, Transfer};
@@ -152,6 +154,67 @@ impl RemitFlowContract {
 
     pub fn get_initialized_at(env: Env) -> Result<u64, Error> {
         storage::get_initialized_at(&env).ok_or(Error::NotInitialized)
+    }
+
+    /// Record the currently deployed artifact before enabling replacements.
+    /// This is intentionally a one-time, admin-authorized operation.
+    pub fn set_upgrade_baseline(env: Env, artifact: BytesN<32>) -> Result<(), Error> {
+        if storage::get_upgrade_artifact_hash(&env).is_some() {
+            return Err(Error::UpgradeBaselineAlreadySet);
+        }
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_upgrade_artifact_hash(&env, &artifact);
+        storage::set_upgrade_version(&env, 0);
+        storage::extend_instance(&env);
+        events::upgrade_baseline_set(&env, &admin, &artifact);
+        Ok(())
+    }
+
+    /// Replace the current contract wasm only after checking the exact
+    /// expected artifact and the next sequential release number.
+    pub fn upgrade(
+        env: Env,
+        expected_artifact: BytesN<32>,
+        replacement_artifact: BytesN<32>,
+        version: u32,
+    ) -> Result<(), Error> {
+        require_cooldown(&env)?;
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let current =
+            storage::get_upgrade_artifact_hash(&env).ok_or(Error::UpgradeArtifactMismatch)?;
+        if current != expected_artifact {
+            return Err(Error::UpgradeArtifactMismatch);
+        }
+        if current == replacement_artifact {
+            return Err(Error::UpgradeArtifactUnchanged);
+        }
+        let next = storage::get_upgrade_version(&env)
+            .checked_add(1)
+            .ok_or(Error::UpgradeVersionInvalid)?;
+        if version != next {
+            return Err(Error::UpgradeVersionInvalid);
+        }
+
+        // All validation and audit state are part of this transaction. If the
+        // host rejects the artifact, Soroban rolls back both storage and event.
+        storage::set_upgrade_artifact_hash(&env, &replacement_artifact);
+        storage::set_upgrade_version(&env, version);
+        record_privileged_call(&env);
+        storage::extend_instance(&env);
+        events::upgrade_applied(&env, &admin, version, &replacement_artifact);
+        env.deployer()
+            .update_current_contract_wasm(replacement_artifact);
+        Ok(())
+    }
+
+    pub fn get_upgrade_artifact(env: Env) -> Result<BytesN<32>, Error> {
+        storage::get_upgrade_artifact_hash(&env).ok_or(Error::NotInitialized)
+    }
+
+    pub fn get_upgrade_version(env: Env) -> u32 {
+        storage::get_upgrade_version(&env)
     }
 
     pub fn get_balances(env: Env, addresses: Vec<Address>) -> Result<Vec<i128>, Error> {

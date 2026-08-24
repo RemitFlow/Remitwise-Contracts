@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, BytesN, Env};
 
 use crate::types::Transfer;
 
@@ -48,6 +48,10 @@ pub enum InstanceKey {
     InitializedAt,
     /// Timestamp of the most recent privileged administrative call.
     LastPrivilegedCall,
+    /// Hash of the wasm artifact currently recorded as active.
+    UpgradeArtifactHash,
+    /// Monotonic release number for the active wasm artifact.
+    UpgradeVersion,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -183,6 +187,31 @@ pub fn get_last_privileged_call(env: &Env) -> u64 {
     env.storage()
         .instance()
         .get(&InstanceKey::LastPrivilegedCall)
+        .unwrap_or(0)
+}
+
+pub fn set_upgrade_artifact_hash(env: &Env, hash: &BytesN<32>) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::UpgradeArtifactHash, hash);
+}
+
+pub fn get_upgrade_artifact_hash(env: &Env) -> Option<BytesN<32>> {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::UpgradeArtifactHash)
+}
+
+pub fn set_upgrade_version(env: &Env, version: u32) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::UpgradeVersion, &version);
+}
+
+pub fn get_upgrade_version(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::UpgradeVersion)
         .unwrap_or(0)
 }
 

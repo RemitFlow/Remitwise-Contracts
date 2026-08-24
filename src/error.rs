@@ -52,4 +52,12 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// A wasm baseline has already been registered.
+    UpgradeBaselineAlreadySet = 23,
+    /// The supplied expected artifact does not match the recorded artifact.
+    UpgradeArtifactMismatch = 24,
+    /// The release number is not the next sequential version.
+    UpgradeVersionInvalid = 25,
+    /// The replacement artifact is identical to the active artifact.
+    UpgradeArtifactUnchanged = 26,
 }
