@@ -1,4 +1,5 @@
 use soroban_sdk::{contracttype, Address, Env, String, Symbol};
+use soroban_sdk::BytesN;
 
 /// Current version for every lifecycle event payload.
 pub const EVENT_SCHEMA_VERSION: u32 = 1;
@@ -213,4 +214,18 @@ pub fn admin_transfer_completed(env: &Env, old_admin: &Address, new_admin: &Addr
             new_admin: new_admin.clone(),
         },
     );
+}
+
+/// Publish the exact artifact and release number accepted by governance.
+pub fn upgrade_applied(env: &Env, admin: &Address, version: u32, artifact: &BytesN<32>) {
+    let topics = (Symbol::new(env, "upgrade_applied"), version);
+    env.events()
+        .publish(topics, (admin.clone(), artifact.clone()));
+}
+
+/// Publish the baseline used by the first governed replacement.
+pub fn upgrade_baseline_set(env: &Env, admin: &Address, artifact: &BytesN<32>) {
+    let topics = (Symbol::new(env, "upgrade_baseline_set"),);
+    env.events()
+        .publish(topics, (admin.clone(), artifact.clone()));
 }
