@@ -11,6 +11,7 @@ use crate::test_utils::{
 use crate::types::{
     BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
 };
+use crate::events::{ActorEvent, AdminTransferEvent, CancelledEvent, ClaimedEvent, CreatedEvent, InitEvent};
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
 /// Test harness bundling the contract client, token, and key addresses.
@@ -825,6 +826,117 @@ fn test_add_caller_requires_admin_auth() {
 }
 
 #[test]
+fn test_versioned_caller_update_starts_at_one_and_is_auditable() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+
+    assert_eq!(s.client.caller_registry_version(), 0);
+    let result = s.client.update_caller_versioned(&caller, &true, &1);
+    assert_eq!(result.changed, true);
+    assert_eq!(result.duplicate, false);
+    assert_eq!(result.version, 1);
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+
+    let matching_events = s
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|event| {
+            let topics: soroban_sdk::Vec<soroban_sdk::Val> = event.1.clone().into_val(&s.env);
+            if topics.len() == 0 {
+                return false;
+            }
+            let topic: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&s.env);
+            topic == soroban_sdk::Symbol::new(&s.env, "caller_registry_changed")
+        })
+        .count();
+    assert_eq!(matching_events, 1);
+}
+
+#[test]
+fn test_exact_versioned_caller_retry_is_deterministic_without_second_event() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    let first = s.client.update_caller_versioned(&caller, &true, &1);
+    let retry = s.client.update_caller_versioned(&caller, &true, &1);
+
+    assert_eq!(first.changed, true);
+    assert_eq!(retry.changed, false);
+    assert_eq!(retry.duplicate, true);
+    assert_eq!(retry.version, 1);
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_versioned_remove_is_one_transition_and_blocks_new_mutations() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.client.update_caller_versioned(&caller, &true, &1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let removed = s.client.update_caller_versioned(&caller, &false, &2);
+    assert_eq!(removed.changed, true);
+    assert_eq!(removed.version, 2);
+    assert!(!s.client.is_caller_allowed(&caller));
+
+    let expiry = s.future_expiry();
+    let result = s.client.try_create_transfer(&caller, &s.recipient, &100, &expiry);
+    assert_eq!(result, Err(Ok(crate::error::Error::CallerNotAllowed)));
+}
+
+#[test]
+fn test_stale_version_does_not_change_registry_or_membership() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.client.update_caller_versioned(&caller, &true, &1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+
+    let stale = s.client.try_update_caller_versioned(&caller, &false, &3);
+    assert_eq!(stale, Err(Ok(crate::error::Error::StaleCallerUpdate)));
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_cooldown_failure_does_not_consume_next_version() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+    s.env.ledger().set_timestamp(1_000);
+    s.client.update_caller_versioned(&caller, &true, &1);
+
+    let blocked = s.client.try_update_caller_versioned(&caller, &false, &2);
+    assert_eq!(blocked, Err(Ok(crate::error::Error::CooldownNotElapsed)));
+    assert_eq!(s.client.caller_registry_version(), 1);
+    assert!(s.client.is_caller_allowed(&caller));
+
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let accepted = s.client.update_caller_versioned(&caller, &false, &2);
+    assert_eq!(accepted.changed, true);
+    assert!(!s.client.is_caller_allowed(&caller));
+}
+
+#[test]
+fn test_distinct_callers_share_ordered_registry_versions() {
+    let s = setup();
+    let first = Address::generate(&s.env);
+    let second = Address::generate(&s.env);
+    let third = Address::generate(&s.env);
+    let first_result = s.client.update_caller_versioned(&first, &true, &1);
+    assert_eq!(first_result.version, 1);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let second_result = s.client.update_caller_versioned(&second, &true, &2);
+    assert_eq!(second_result.version, 2);
+    s.env.ledger().set_timestamp(s.env.ledger().timestamp() + crate::PRIVILEGED_COOLDOWN);
+    let third_result = s.client.update_caller_versioned(&third, &true, &3);
+    assert_eq!(third_result.version, 3);
+    assert!(s.client.is_caller_allowed(&first));
+    assert!(s.client.is_caller_allowed(&second));
+    assert!(s.client.is_caller_allowed(&third));
+}
+
+#[test]
 fn test_pause_requires_admin_auth() {
     let s = setup();
     let non_admin = Address::generate(&s.env);
@@ -1461,9 +1573,10 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "init"));
         assert_eq!(topics.len(), 1);
 
-        let (admin, token): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
-        assert_eq!(token, s.token);
+        let payload: InitEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.admin, s.admin);
+        assert_eq!(payload.token, s.token);
     }
 
     // Event 1: caller_added
@@ -1479,8 +1592,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 2: caller_removed
@@ -1496,8 +1610,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 3: caller_added
@@ -1513,8 +1628,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 4: paused
@@ -1527,8 +1643,9 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "paused"));
         assert_eq!(topics.len(), 1);
 
-        let admin: Address = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.admin);
     }
 
     // Event 5: unpaused
@@ -1541,8 +1658,9 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "unpaused"));
         assert_eq!(topics.len(), 1);
 
-        let admin: Address = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.admin);
     }
 
     // Event 6: created (id1)
@@ -1558,12 +1676,13 @@ fn test_event_payload_contents() {
         assert_eq!(id, id1);
         assert_eq!(topics.len(), 2);
 
-        let (from, recipient, amount, exp): (Address, Address, i128, u64) =
-            data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 100);
-        assert_eq!(exp, expiry);
+        let payload: CreatedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id1);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 100);
+        assert_eq!(payload.expiry, expiry);
     }
 
     // Event 7: claimed
@@ -1579,9 +1698,11 @@ fn test_event_payload_contents() {
         assert_eq!(id, id1);
         assert_eq!(topics.len(), 2);
 
-        let (recipient, amount): (Address, i128) = data.clone().into_val(&s.env);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 100);
+        let payload: ClaimedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id1);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 100);
     }
 
     // Event 8: created (id2)
@@ -1597,12 +1718,13 @@ fn test_event_payload_contents() {
         assert_eq!(id, id2);
         assert_eq!(topics.len(), 2);
 
-        let (from, recipient, amount, exp): (Address, Address, i128, u64) =
-            data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 200);
-        assert_eq!(exp, expiry);
+        let payload: CreatedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id2);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 200);
+        assert_eq!(payload.expiry, expiry);
     }
 
     // Event 9: cancelled
@@ -1618,9 +1740,11 @@ fn test_event_payload_contents() {
         assert_eq!(id, id2);
         assert_eq!(topics.len(), 2);
 
-        let (from, amount): (Address, i128) = data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(amount, 200);
+        let payload: CancelledEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id2);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.amount, 200);
     }
 
     // Event 10: admin_transfer_started
@@ -1636,9 +1760,10 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let (current_admin, pending_admin): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(current_admin, s.admin);
-        assert_eq!(pending_admin, new_admin);
+        let payload: AdminTransferEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.old_admin, s.admin);
+        assert_eq!(payload.new_admin, new_admin);
     }
 
     // Event 11: admin_transfer_completed
@@ -1654,9 +1779,10 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let (old_admin, newest_admin): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(old_admin, s.admin);
-        assert_eq!(newest_admin, new_admin);
+        let payload: AdminTransferEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.old_admin, s.admin);
+        assert_eq!(payload.new_admin, new_admin);
     }
 }
 
@@ -2487,4 +2613,100 @@ fn test_sweep_expired_not_pending_fails() {
 
     let res = s.client.try_sweep_expired(&id);
     assert_eq!(res, Err(Ok(crate::error::Error::NotPending)));
+}
+
+#[test]
+fn test_sweep_expired_batch_respects_expiry_boundary_and_skips_live_transfers() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 10;
+    let expired_id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let live_id = s.client.create_transfer(
+        &s.from,
+        &s.recipient,
+        &100,
+        &(expiry + DEFAULT_EXPIRY_OFFSET),
+    );
+
+    s.env.ledger().with_mut(|ledger| ledger.timestamp = expiry);
+    assert_eq!(s.client.sweep_expired_batch(&0, &2), vec![&s.env]);
+    assert_eq!(s.client.get_status(&expired_id), Status::Pending);
+
+    s.env.ledger().with_mut(|ledger| ledger.timestamp += 1);
+    assert_eq!(
+        s.client.sweep_expired_batch(&0, &2),
+        vec![&s.env, expired_id]
+    );
+    assert_eq!(s.client.get_status(&expired_id), Status::Cancelled);
+    assert_eq!(s.client.get_status(&live_id), Status::Pending);
+}
+
+#[test]
+fn test_sweep_expired_batch_is_permissionless_idempotent_and_conserves_funds() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.env
+        .ledger()
+        .with_mut(|ledger| ledger.timestamp += DEFAULT_EXPIRY_OFFSET + 1);
+    let sender_before = s.token_client().balance(&s.from);
+    let escrow_before = s.token_client().balance(&s.client.address);
+    let liability_before = s.client.total_escrowed();
+
+    // Disable the fixture's auth mocking: sweeping must not require either
+    // sender or administrator authorization.
+    s.env.set_auths(&[]);
+    assert_eq!(s.client.sweep_expired_batch(&id, &1), vec![&s.env, id]);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        sender_before + DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(
+        s.token_client().balance(&s.client.address),
+        escrow_before - DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(
+        s.client.total_escrowed(),
+        liability_before - DEFAULT_TRANSFER_AMOUNT
+    );
+    s.client.check_supply_invariant();
+
+    // Retrying the same range has no refund side effect.
+    assert_eq!(s.client.sweep_expired_batch(&id, &1), vec![&s.env]);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        sender_before + DEFAULT_TRANSFER_AMOUNT
+    );
+}
+
+#[test]
+fn test_sweep_expired_batch_limits_work_and_advances_by_cursor() {
+    let s = setup();
+    let expiry = s.future_expiry();
+    let first = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    let second = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    let third = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    s.env
+        .ledger()
+        .with_mut(|ledger| ledger.timestamp += DEFAULT_EXPIRY_OFFSET + 1);
+
+    assert_eq!(
+        s.client.sweep_expired_batch(&first, &2),
+        vec![&s.env, first, second]
+    );
+    assert_eq!(s.client.get_status(&first), Status::Cancelled);
+    assert_eq!(s.client.get_status(&second), Status::Cancelled);
+    assert_eq!(s.client.get_status(&third), Status::Pending);
+
+    assert_eq!(
+        s.client.sweep_expired_batch(&third, &1),
+        vec![&s.env, third]
+    );
+    assert_eq!(s.client.get_status(&third), Status::Cancelled);
 }

@@ -44,6 +44,18 @@ pub enum BatchOperationResult {
     Cancelled,
 }
 
+/// Durable receipt for an idempotent batch invocation.
+///
+/// The original operations are retained with their result vector so a retry
+/// with the same id can return the exact original result, while a reused id
+/// with a different payload is rejected instead of being silently misapplied.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BatchReceipt {
+    pub operations: soroban_sdk::Vec<BatchOperation>,
+    pub results: soroban_sdk::Vec<BatchOperationResult>,
+}
+
 /// Lifecycle status of a remittance transfer held in escrow.
 #[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,4 +98,16 @@ pub struct ConfiguredLimits {
     pub max_total_escrowed: i128,
     /// Maximum number of records returned by a paginated transfer query.
     pub max_page_size: u32,
+}
+
+/// Deterministic result for a versioned allowed-caller update.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallerUpdateResult {
+    /// True when this invocation changed the registry.
+    pub changed: bool,
+    /// True when the exact versioned update was already applied.
+    pub duplicate: bool,
+    /// Registry version after evaluating the update.
+    pub version: u64,
 }

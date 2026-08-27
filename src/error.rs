@@ -52,6 +52,25 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// The supplied idempotency key is zero and cannot identify a batch.
+    InvalidBatchId = 26,
+    /// An idempotency key was reused with a different batch payload.
+    BatchIdConflict = 31,
+    /// A lifetime accounting total would overflow or a release exceeds the
+    /// pending liability recorded by the contract.
+    AccountingOverflow = 23,
+    /// A wasm baseline has already been registered.
+    UpgradeBaselineAlreadySet = 27,
+    /// The supplied expected artifact does not match the recorded artifact.
+    UpgradeArtifactMismatch = 28,
+    /// The release number is not the next sequential version.
+    UpgradeVersionInvalid = 29,
+    /// The replacement artifact is identical to the active artifact.
+    UpgradeArtifactUnchanged = 30,
+    /// A caller update was not the next registry version.
+    StaleCallerUpdate = 24,
+    /// The caller registry version cannot be incremented safely.
+    CallerUpdateVersionOverflow = 25,
     /// A terminal-transfer cleanup request exceeds its bounded batch size.
-    CleanupBatchTooLarge = 23,
+    CleanupBatchTooLarge = 32,
 }

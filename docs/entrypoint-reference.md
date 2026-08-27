@@ -20,6 +20,18 @@ The batch is bounded to at most MAX_BATCH_SIZE (50) operations per call; a large
 Successful results preserve input order. `Create` returns `Created(id)`;
 `Claim` returns `Claimed`; and `Cancel` returns `Cancelled`.
 
+### `batch_operations_idempotent(batch_id: u64, operations: Vec<BatchOperation>) -> Result<Vec<BatchOperationResult>, Error>`
+
+Provides the same atomic execution semantics with a durable retry key. The
+first successful invocation stores the exact input operations and ordered
+results. A retry with the same `batch_id` and identical payload returns that
+stored result without executing any item again. Reusing the id with another
+payload returns `BatchIdConflict`; zero is rejected with `InvalidBatchId`.
+
+Failed batches do not reserve their id, because the receipt is written only
+after every operation succeeds. Receipts are persistent and receive the same
+TTL policy as transfer records.
+
 ## Admin Management
 
 ### `transfer_admin(new_admin: Address) -> Result<(), Error>`
@@ -85,19 +97,59 @@ Queries whether the given address is authorized on the privileged callers allowl
 ### `check_supply_invariant() -> Result<(), Error>`
 
 Verifies that the contract's actual token balance can still cover its
-internally tracked `TotalEscrowed` liability.
+internally tracked `TotalEscrowed` liability and that
+`TotalFunded = TotalEscrowed + TotalReleased`.
 
 * **Authorization**: None (public view)
 * **Effect**: None; performs no writes. Returns `Ok(())` when
   `token_balance(contract_address) >= TotalEscrowed`.
 * **Errors**: `NotInitialized` if the contract is not initialized;
-  `SupplyInvariantViolation` if the balance has fallen below the tracked
-  liability.
+  `SupplyInvariantViolation` if the conservation equation or token solvency
+  check fails.
 * This is the same check that runs automatically after every entrypoint
   that moves escrowed funds (`create_transfer`, `claim_transfer`,
-  `cancel_transfer`); calling it directly lets off-chain monitoring audit
-  solvency independently. See [Invariants](./invariants.md) for the
-  rationale.
+  `cancel_transfer`, `sweep_expired`); calling it directly lets off-chain
+  monitoring audit solvency independently. See [Invariants](./invariants.md)
+  for the rationale.
+
+### `total_funded() -> i128`
+
+Returns the lifetime amount accepted into escrow. This total never decreases;
+it is paired with `total_escrowed()` and `total_released()` by the conservation
+equation `total_funded = total_escrowed + total_released`.
+
+* **Authorization**: None (public view)
+* **Effect**: None
+
+### `total_released() -> i128`
+
+Returns the lifetime amount released through recipient claims and sender
+refunds, including permissionless expiry sweeps.
+
+* **Authorization**: None (public view)
+* **Effect**: None
+
+## Expiry Sweeping
+
+### `sweep_expired_batch(start_id: u64, limit: u32) -> Result<Vec<u64>, Error>`
+
+Permissionlessly refunds expired pending transfers to their original senders.
+
+* **Authorization**: None. This is deliberate so anyone can run cleanup bots;
+  the payout is always fixed to the recorded sender, never the caller.
+* **Expiry boundary**: A transfer is eligible only when
+  `ledger_timestamp > expiry`. At `ledger_timestamp == expiry`, it remains
+  claimable and cannot be swept.
+* **Bounded work**: `start_id` is inclusive (`0` is treated as `1`) and the
+  method inspects at most `min(limit, MAX_SWEEP_BATCH_SIZE)` sequential ids,
+  where `MAX_SWEEP_BATCH_SIZE` is 50. Missing and terminal records count toward
+  the bound, ensuring a sparse id range cannot make a sweep unbounded.
+* **Result and retry**: Returns only ids swept by this call. Live, missing, and
+  terminal records are skipped. Therefore callers can retry a cursor safely:
+  a terminal transfer cannot be refunded twice.
+* **Effects**: Each swept transfer becomes `Cancelled`, reduces
+  `TotalEscrowed`, emits the normal `cancelled` event, and transfers its amount
+  from contract escrow to the recorded sender.
 
 ## Transfer Queries
 
@@ -122,5 +174,3 @@ Returns the contract's configured operational limits.
 
 * **Authorization**: None (public view, callable pre/post-initialization)
 * **Returns**: [`ConfiguredLimits`](data-types.md#configuredlimits) containing `max_amount`, `max_expiry_window`, `max_total_escrowed`, and `max_page_size`.
-
-

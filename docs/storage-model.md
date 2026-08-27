@@ -56,6 +56,9 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 | `Token` | `Address` | Soroban token contract used for all escrow movements |
 | `Counter` | `u64` | Monotonically increasing id issued to the next transfer |
 | `Paused` | `bool` | When `true`, `create_transfer` is blocked |
+| `TotalEscrowed` | `i128` | Current pending escrow liability |
+| `TotalFunded` | `i128` | Lifetime amount accepted into escrow |
+| `TotalReleased` | `i128` | Lifetime amount paid out by claims and refunds |
 | `InitializedAt` | `u64` | Ledger timestamp at which `initialize` was called |
 
 ### `PersistentKey` — persistent storage
@@ -64,6 +67,7 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 |---|---|---|---|
 | `Transfer(u64)` | Transfer id | `Transfer` struct | Full record for a single escrow transfer |
 | `AllowedCaller(Address)` | Caller address | `bool` | Allowlist membership flag |
+| `Batch(u64)` | Idempotency key | `BatchReceipt` struct | Original operations and ordered results for a completed batch |
 
 ---
 
@@ -91,6 +95,9 @@ Both thresholds and amounts are the same for instance and persistent storage in 
 2. **`AllowedCaller` entries are independent per address.** Adding or removing one address has no effect on any other address's entry.
 3. **`Transfer` and `AllowedCaller` keys are disjoint namespaces.** Their variant name strings differ, so no payload value can produce a collision.
 4. **Instance and persistent entries are tier-isolated.** The split enum design enforces this at compile time.
+5. **Escrow totals are conserved.** `TotalFunded` equals
+   `TotalEscrowed + TotalReleased`; all three totals are updated by the
+   accounting façade as one lifecycle transition.
 
 ---
 

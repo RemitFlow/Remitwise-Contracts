@@ -131,6 +131,18 @@ stellar contract invoke \
   ]'
 ```
 
+For clients that retry transactions, use the idempotent form with a stable
+non-zero batch id. Replaying the same id and payload returns the original
+ordered results without applying transfers a second time:
+
+```sh
+stellar contract invoke \
+  --id $CONTRACT_ID --source <KEY> --network $NETWORK \
+  -- batch_operations_idempotent \
+  --batch_id 42 \
+  --operations '[{"Create": {"from": "G...", "recipient": "G...", "amount": 500, "expiry": 1800000000}}]'
+```
+
 ---
 
 ## Query Operations
