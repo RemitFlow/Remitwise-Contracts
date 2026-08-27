@@ -99,3 +99,15 @@ pub struct ConfiguredLimits {
     /// Maximum number of records returned by a paginated transfer query.
     pub max_page_size: u32,
 }
+
+/// Deterministic result for a versioned allowed-caller update.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallerUpdateResult {
+    /// True when this invocation changed the registry.
+    pub changed: bool,
+    /// True when the exact versioned update was already applied.
+    pub duplicate: bool,
+    /// Registry version after evaluating the update.
+    pub version: u64,
+}

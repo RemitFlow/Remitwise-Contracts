@@ -22,14 +22,18 @@ mod batch_tests;
 mod fixtures;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_upgrade;
+mod event_schema_tests;
 mod test_utils;
 
-use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, BytesN, Env, Vec};
 
 use crate::error::Error;
 use crate::types::{
     BatchOperation, BatchOperationResult, BatchReceipt, ConfiguredLimits, Status, Transfer,
 };
+use crate::types::CallerUpdateResult;
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -56,6 +60,11 @@ pub const PRIVILEGED_COOLDOWN: u64 = 300;
 pub const MAX_PAGE_SIZE: u32 = 100;
 /// Maximum number of operations allowed in a single batch_operations call.
 pub const MAX_BATCH_SIZE: u32 = 50;
+/// Maximum number of transfer ids inspected by one expiry sweep batch.
+///
+/// The limit bounds both storage reads and token transfers, keeping a sweep
+/// invocation within a predictable transaction budget.
+pub const MAX_SWEEP_BATCH_SIZE: u32 = 50;
 
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
@@ -199,6 +208,67 @@ impl RemitFlowContract {
 
     pub fn get_initialized_at(env: Env) -> Result<u64, Error> {
         storage::get_initialized_at(&env).ok_or(Error::NotInitialized)
+    }
+
+    /// Record the currently deployed artifact before enabling replacements.
+    /// This is intentionally a one-time, admin-authorized operation.
+    pub fn set_upgrade_baseline(env: Env, artifact: BytesN<32>) -> Result<(), Error> {
+        if storage::get_upgrade_artifact_hash(&env).is_some() {
+            return Err(Error::UpgradeBaselineAlreadySet);
+        }
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        storage::set_upgrade_artifact_hash(&env, &artifact);
+        storage::set_upgrade_version(&env, 0);
+        storage::extend_instance(&env);
+        events::upgrade_baseline_set(&env, &admin, &artifact);
+        Ok(())
+    }
+
+    /// Replace the current contract wasm only after checking the exact
+    /// expected artifact and the next sequential release number.
+    pub fn upgrade(
+        env: Env,
+        expected_artifact: BytesN<32>,
+        replacement_artifact: BytesN<32>,
+        version: u32,
+    ) -> Result<(), Error> {
+        require_cooldown(&env)?;
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let current =
+            storage::get_upgrade_artifact_hash(&env).ok_or(Error::UpgradeArtifactMismatch)?;
+        if current != expected_artifact {
+            return Err(Error::UpgradeArtifactMismatch);
+        }
+        if current == replacement_artifact {
+            return Err(Error::UpgradeArtifactUnchanged);
+        }
+        let next = storage::get_upgrade_version(&env)
+            .checked_add(1)
+            .ok_or(Error::UpgradeVersionInvalid)?;
+        if version != next {
+            return Err(Error::UpgradeVersionInvalid);
+        }
+
+        // All validation and audit state are part of this transaction. If the
+        // host rejects the artifact, Soroban rolls back both storage and event.
+        storage::set_upgrade_artifact_hash(&env, &replacement_artifact);
+        storage::set_upgrade_version(&env, version);
+        record_privileged_call(&env);
+        storage::extend_instance(&env);
+        events::upgrade_applied(&env, &admin, version, &replacement_artifact);
+        env.deployer()
+            .update_current_contract_wasm(replacement_artifact);
+        Ok(())
+    }
+
+    pub fn get_upgrade_artifact(env: Env) -> Result<BytesN<32>, Error> {
+        storage::get_upgrade_artifact_hash(&env).ok_or(Error::NotInitialized)
+    }
+
+    pub fn get_upgrade_version(env: Env) -> u32 {
+        storage::get_upgrade_version(&env)
     }
 
     pub fn get_balances(env: Env, addresses: Vec<Address>) -> Result<Vec<i128>, Error> {
@@ -503,6 +573,53 @@ impl RemitFlowContract {
         storage::is_caller_allowed(&env, &caller)
     }
 
+    /// Apply an admin-authorized caller update at the next registry version.
+    ///
+    /// Replaying the exact `(version, caller, allowed)` tuple is deterministic
+    /// and produces no second event. Different stale updates are rejected.
+    pub fn update_caller_versioned(
+        env: Env,
+        caller: Address,
+        allowed: bool,
+        version: u64,
+    ) -> Result<CallerUpdateResult, Error> {
+        let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        require_external_address(&env, &caller)?;
+        if storage::has_caller_update(&env, version, &caller, allowed) {
+            return Ok(CallerUpdateResult {
+                changed: false,
+                duplicate: true,
+                version: storage::get_caller_registry_version(&env),
+            });
+        }
+        require_cooldown(&env)?;
+        let current = storage::get_caller_registry_version(&env);
+        let expected = current.checked_add(1).ok_or(Error::CallerUpdateVersionOverflow)?;
+        if version != expected {
+            return Err(Error::StaleCallerUpdate);
+        }
+
+        // The membership bit, version, replay marker, cooldown, and event are
+        // one state transition. A trapped call rolls all of them back.
+        storage::set_caller_allowed(&env, &caller, allowed);
+        storage::set_caller_registry_version(&env, version);
+        storage::set_caller_update(&env, version, &caller, allowed);
+        record_privileged_call(&env);
+        storage::extend_instance(&env);
+        events::caller_registry_changed(&env, version, &admin, &caller, allowed);
+        Ok(CallerUpdateResult {
+            changed: true,
+            duplicate: false,
+            version,
+        })
+    }
+
+    /// Return the monotonic version of the allowed-caller registry.
+    pub fn caller_registry_version(env: Env) -> u64 {
+        storage::get_caller_registry_version(&env)
+    }
+
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         require_cooldown(&env)?;
         let admin = storage::get_admin(&env).ok_or(Error::NotInitialized)?;
@@ -578,5 +695,59 @@ impl RemitFlowContract {
         events::cancelled(&env, id, &from, amount);
 
         Ok(())
+    }
+
+    /// Sweeps expired pending transfers in an ascending, bounded id range.
+    ///
+    /// `start_id` is inclusive and `0` is clamped to `1`. At most
+    /// `min(limit, MAX_SWEEP_BATCH_SIZE)` ids are inspected, including ids
+    /// whose records have expired from storage or have already reached a
+    /// terminal status. This makes cursored retries deterministic and bounds
+    /// the work performed by a single invocation. A transfer is swept only
+    /// when the ledger timestamp is strictly greater than its expiry; funds
+    /// are returned to its original sender. The call is permissionless and
+    /// returns the ids swept during this invocation. Repeating a range is
+    /// idempotent because terminal records are skipped.
+    pub fn sweep_expired_batch(env: Env, start_id: u64, limit: u32) -> Result<Vec<u64>, Error> {
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        let mut swept = Vec::new(&env);
+        let mut id = start_id.max(1);
+        let mut inspected = 0;
+        let max_inspected = limit.min(MAX_SWEEP_BATCH_SIZE);
+        let last = storage::get_counter(&env);
+        let now = env.ledger().timestamp();
+
+        while id <= last && inspected < max_inspected {
+            if let Some(mut transfer) = storage::get_transfer(&env, id) {
+                if transfer.status == Status::Pending && now > transfer.expiry {
+                    token::Client::new(&env, &token).transfer(
+                        &env.current_contract_address(),
+                        &transfer.from,
+                        &transfer.amount,
+                    );
+                    transfer.status = Status::Cancelled;
+                    storage::set_total_escrowed(
+                        &env,
+                        storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+                    );
+                    let from = transfer.from.clone();
+                    let amount = transfer.amount;
+                    storage::set_transfer(&env, &transfer);
+                    events::cancelled(&env, id, &from, amount);
+                    swept.push_back(id);
+                }
+            }
+            inspected += 1;
+            match id.checked_add(1) {
+                Some(next_id) => id = next_id,
+                None => break,
+            }
+        }
+
+        if !swept.is_empty() {
+            assert_supply_invariant(&env, &token)?;
+            storage::extend_instance(&env);
+        }
+        Ok(swept)
     }
 }
