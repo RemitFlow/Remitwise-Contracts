@@ -52,6 +52,8 @@ pub enum InstanceKey {
     UpgradeArtifactHash,
     /// Monotonic release number for the active wasm artifact.
     UpgradeVersion,
+    /// Monotonic version of the caller registry.
+    CallerRegistryVersion,
 }
 
 /// Keys for values held in **persistent** storage.
@@ -74,6 +76,8 @@ pub enum PersistentKey {
     AllowedCaller(Address),
     /// Per-account operation counter, keyed by account address.
     AccountOpCount(Address),
+    /// Replay marker for an exact versioned caller update.
+    CallerUpdate(u64, Address, bool),
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +226,21 @@ pub fn set_last_privileged_call(env: &Env, timestamp: u64) {
         .set(&InstanceKey::LastPrivilegedCall, &timestamp);
 }
 
+/// Read the current caller registry version, defaulting to zero.
+pub fn get_caller_registry_version(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::CallerRegistryVersion)
+        .unwrap_or(0)
+}
+
+/// Persist the current caller registry version.
+pub fn set_caller_registry_version(env: &Env, version: u64) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::CallerRegistryVersion, &version);
+}
+
 // ---------------------------------------------------------------------------
 // Persistent storage helpers
 // ---------------------------------------------------------------------------
@@ -279,4 +298,21 @@ pub fn increment_account_op_count(env: &Env, account: &Address) {
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+/// Check whether an exact versioned caller update has already been applied.
+pub fn has_caller_update(env: &Env, version: u64, caller: &Address, allowed: bool) -> bool {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::CallerUpdate(version, caller.clone(), allowed))
+        .unwrap_or(false)
+}
+
+/// Mark an exact versioned caller update as applied.
+pub fn set_caller_update(env: &Env, version: u64, caller: &Address, allowed: bool) {
+    let key = PersistentKey::CallerUpdate(version, caller.clone(), allowed);
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
