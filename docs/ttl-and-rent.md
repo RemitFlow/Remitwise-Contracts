@@ -1,6 +1,6 @@
 # TTL and Rent Management
 
-This document describes the Time-To-Live (TTL) bump strategy, state rent management, and automated test validation for the **RemitFlow** smart contract on Soroban.
+This document describes the baseline Time-To-Live (TTL) bump strategy and state rent management for the **RemitFlow** smart contract on Soroban. The class-by-class policy, cleanup contract, compatibility notes, and budget evidence are documented in [`ttl-policy.md`](ttl-policy.md).
 
 ---
 
@@ -16,7 +16,9 @@ Soroban requires state entries to maintain a positive Time-To-Live (TTL) to rema
 |--------------|--------------|-----------------------|-------------------------|------------------|
 | **Instance** | `InstanceKey` | `518_400` (≈ 30 days) | `535_680` (≈ 31 days) | All mutating contract calls (`initialize`, `pause`, `unpause`, `add_caller`, `remove_caller`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `transfer_admin`, `accept_admin`) |
 | **Persistent** | `PersistentKey::Transfer(id)` | `518_400` (≈ 30 days) | `535_680` (≈ 31 days) | Entry creation and state updates (`set_transfer` during `create_transfer`, `claim_transfer`, `cancel_transfer`) |
-| **Persistent** | `PersistentKey::AllowedCaller(addr)` | `518_400` (≈ 30 days) | `535_680` (≈ 31 days) | Allowlist additions (`set_caller_allowed` during `add_caller`) |
+| **Persistent** | `PersistentKey::AllowedCaller(addr)` | `259_200` (≈ 15 days) | `276_480` (≈ 16 days) | Allowlist additions (`set_caller_allowed` during `add_caller`) |
+| **Persistent** | `PersistentKey::AccountOpCount(addr)` | `86_400` (≈ 5 days) | `95_040` (≈ 5.5 days) | Successful transfer creation for the account |
+| **Persistent** | `PersistentKey::Transfer(id)` terminal | `10_080` (≈ 28 hours) | `20_160` (≈ 28 hours) | Terminal settlement writes; optional bounded cleanup |
 
 ---
 
@@ -26,6 +28,13 @@ Soroban requires state entries to maintain a positive Time-To-Live (TTL) to rema
 - `INSTANCE_BUMP_AMOUNT`: `535_680` ledgers
 - `PERSISTENT_BUMP_THRESHOLD`: `518_400` ledgers
 - `PERSISTENT_BUMP_AMOUNT`: `535_680` ledgers
+- `CALLER_BUMP_THRESHOLD`: `259_200` ledgers
+- `CALLER_BUMP_AMOUNT`: `276_480` ledgers
+- `ACCOUNT_OP_BUMP_THRESHOLD`: `86_400` ledgers
+- `ACCOUNT_OP_BUMP_AMOUNT`: `95_040` ledgers
+- `TERMINAL_BUMP_THRESHOLD`: `10_080` ledgers
+- `TERMINAL_BUMP_AMOUNT`: `20_160` ledgers
+- `MAX_TERMINAL_CLEANUP`: `20` ids per call
 
 ---
 
@@ -42,3 +51,5 @@ Storage TTL bump behavior is validated in `src/test.rs` via automated tests:
 
 See `docs/storage-model.md` and `src/storage.rs` for implementation details.
 
+For the current class-by-class policy, bounded terminal cleanup contract,
+compatibility notes, and budget evidence, see [`ttl-policy.md`](ttl-policy.md).

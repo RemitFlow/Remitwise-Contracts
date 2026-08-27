@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env};
+use soroban_sdk::{contracttype, Address, BytesN, Env, IntoVal, Val};
 
 use crate::types::Transfer;
 
@@ -10,6 +10,27 @@ pub const INSTANCE_BUMP_AMOUNT: u32 = 535_680;
 pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
 /// Number of ledgers the persistent TTL is extended to when bumped.
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 535_680;
+
+/// The shorter TTL used by allowlist entries.  Allowlist membership is
+/// configuration, not escrow, so it should be refreshed when used without
+/// making a dormant address keep state alive indefinitely.
+pub const CALLER_BUMP_THRESHOLD: u32 = 259_200;
+pub const CALLER_BUMP_AMOUNT: u32 = 276_480;
+
+/// Account quotas are operational metadata and have a smaller retention
+/// window than a live transfer.  The entry is still refreshed on every
+/// successful operation, so an active account does not lose its quota.
+pub const ACCOUNT_OP_BUMP_THRESHOLD: u32 = 86_400;
+pub const ACCOUNT_OP_BUMP_AMOUNT: u32 = 95_040;
+
+/// Terminal transfers are retained briefly for status/audit queries.  A
+/// caller may explicitly clean them earlier through the bounded cleanup
+/// entrypoint below.
+pub const TERMINAL_BUMP_THRESHOLD: u32 = 10_080;
+pub const TERMINAL_BUMP_AMOUNT: u32 = 20_160;
+
+/// Maximum number of terminal ids processed by one cleanup invocation.
+pub const MAX_TERMINAL_CLEANUP: u32 = 20;
 
 /// Keys for values held in **instance** storage.
 ///
@@ -86,6 +107,30 @@ pub enum PersistentKey {
     CallerUpdate(u64, Address, bool),
 }
 
+/// Storage retention policy for each persistent record class.
+///
+/// Keeping the policy in one place makes it possible to audit every write and
+/// prevents a new caller from accidentally using the long-lived transfer
+/// policy for a short-lived operational record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PersistentTtlClass {
+    ActiveTransfer,
+    TerminalTransfer,
+    CallerAllowlist,
+    AccountOperations,
+}
+
+impl PersistentTtlClass {
+    fn limits(self) -> (u32, u32) {
+        match self {
+            Self::ActiveTransfer => (PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT),
+            Self::TerminalTransfer => (TERMINAL_BUMP_THRESHOLD, TERMINAL_BUMP_AMOUNT),
+            Self::CallerAllowlist => (CALLER_BUMP_THRESHOLD, CALLER_BUMP_AMOUNT),
+            Self::AccountOperations => (ACCOUNT_OP_BUMP_THRESHOLD, ACCOUNT_OP_BUMP_AMOUNT),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Instance storage helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +140,19 @@ pub fn extend_instance(env: &Env) {
     env.storage()
         .instance()
         .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
+/// Apply a persistent TTL policy after a write.
+///
+/// Soroban's `extend_ttl` is monotonic: it only raises an entry to the
+/// requested horizon when it is below the threshold.  Calling this helper on
+/// every state transition is therefore idempotent and does not repeatedly
+/// rewrite an entry that is already healthy.
+fn extend_persistent<K: IntoVal<Env, Val>>(env: &Env, key: &K, class: PersistentTtlClass) {
+    let (threshold, amount) = class.limits();
+    env.storage()
+        .persistent()
+        .extend_ttl(key, threshold, amount);
 }
 
 /// Store the administrator address in instance storage.
@@ -285,9 +343,12 @@ pub fn set_caller_registry_version(env: &Env, version: u64) {
 pub fn set_transfer(env: &Env, transfer: &Transfer) {
     let key = PersistentKey::Transfer(transfer.id);
     env.storage().persistent().set(&key, transfer);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    let class = if transfer.status == crate::types::Status::Pending {
+        PersistentTtlClass::ActiveTransfer
+    } else {
+        PersistentTtlClass::TerminalTransfer
+    };
+    extend_persistent(env, &key, class);
 }
 
 /// Read a transfer record from persistent storage by id, if present.
@@ -321,11 +382,7 @@ pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
     let key = PersistentKey::AllowedCaller(caller.clone());
     if allowed {
         env.storage().persistent().set(&key, &true);
-        env.storage().persistent().extend_ttl(
-            &key,
-            PERSISTENT_BUMP_THRESHOLD,
-            PERSISTENT_BUMP_AMOUNT,
-        );
+        extend_persistent(env, &key, PersistentTtlClass::CallerAllowlist);
     } else {
         env.storage().persistent().remove(&key);
     }
@@ -334,22 +391,39 @@ pub fn set_caller_allowed(env: &Env, caller: &Address, allowed: bool) {
 /// Check if a caller is allowed from persistent storage.
 pub fn get_account_op_count(env: &Env, account: &Address) -> u32 {
     env.storage()
-        .instance()
+        .persistent()
         .get(&PersistentKey::AccountOpCount(account.clone()))
         .unwrap_or(0)
 }
 
 pub fn increment_account_op_count(env: &Env, account: &Address) {
     let count: u32 = get_account_op_count(env, account);
-    env.storage().instance().set(
-        &PersistentKey::AccountOpCount(account.clone()),
-        &(count.saturating_add(1)),
-    );
+    let key = PersistentKey::AccountOpCount(account.clone());
+    env.storage()
+        .persistent()
+        .set(&key, &(count.saturating_add(1)));
+    extend_persistent(env, &key, PersistentTtlClass::AccountOperations);
 }
 
 pub fn is_caller_allowed(env: &Env, caller: &Address) -> bool {
     let key = PersistentKey::AllowedCaller(caller.clone());
     env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+/// Remove a transfer only after it has reached a terminal state.
+///
+/// Returning a boolean keeps cleanup idempotent: already-removed ids and
+/// unknown ids cost one bounded lookup and do not turn a maintenance sweep
+/// into a failing transaction.  Pending records are deliberately untouched.
+pub fn remove_terminal_transfer(env: &Env, id: u64) -> bool {
+    let key = PersistentKey::Transfer(id);
+    match env.storage().persistent().get::<_, Transfer>(&key) {
+        Some(transfer) if transfer.status != crate::types::Status::Pending => {
+            env.storage().persistent().remove(&key);
+            true
+        },
+        _ => false,
+    }
 }
 
 /// Check whether an exact versioned caller update has already been applied.

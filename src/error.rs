@@ -71,4 +71,6 @@ pub enum Error {
     StaleCallerUpdate = 24,
     /// The caller registry version cannot be incremented safely.
     CallerUpdateVersionOverflow = 25,
+    /// A terminal-transfer cleanup request exceeds its bounded batch size.
+    CleanupBatchTooLarge = 32,
 }
