@@ -52,4 +52,7 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// A lifetime accounting total would overflow or a release exceeds the
+    /// pending liability recorded by the contract.
+    AccountingOverflow = 23,
 }

@@ -44,6 +44,10 @@ pub enum InstanceKey {
     /// Maintained incrementally on create/claim/cancel so that creating a
     /// transfer stays O(1) instead of rescanning every stored transfer.
     TotalEscrowed,
+    /// Cumulative amount accepted into escrow across the contract lifetime.
+    TotalFunded,
+    /// Cumulative amount released from escrow by claims and refunds.
+    TotalReleased,
     /// Ledger timestamp at which initialize was called.
     InitializedAt,
     /// Timestamp of the most recent privileged administrative call.
@@ -176,6 +180,36 @@ pub fn set_total_escrowed(env: &Env, value: i128) {
     env.storage()
         .instance()
         .set(&InstanceKey::TotalEscrowed, &value);
+}
+
+/// Read the cumulative amount that has entered escrow.
+pub fn get_total_funded(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::TotalFunded)
+        .unwrap_or(0)
+}
+
+/// Persist the cumulative amount that has entered escrow.
+pub fn set_total_funded(env: &Env, value: i128) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::TotalFunded, &value);
+}
+
+/// Read the cumulative amount released through claims or refunds.
+pub fn get_total_released(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&InstanceKey::TotalReleased)
+        .unwrap_or(0)
+}
+
+/// Persist the cumulative amount released through claims or refunds.
+pub fn set_total_released(env: &Env, value: i128) {
+    env.storage()
+        .instance()
+        .set(&InstanceKey::TotalReleased, &value);
 }
 
 /// Read the timestamp of the last privileged call (0 when unset).

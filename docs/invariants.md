@@ -5,61 +5,59 @@ correctness, and how each one is enforced or checked.
 
 ---
 
-## Supply-Accounting Invariant
+## Escrow-Conservation Invariant
 
-**The contract's actual token balance must always be able to cover its
-internally tracked escrow liability.**
+**Every amount accepted into escrow must remain either pending or have been
+released exactly once.**
+
+```
+TotalFunded = TotalEscrowed + TotalReleased
+```
+
+`TotalEscrowed` is the current pending liability. `TotalFunded` and
+`TotalReleased` are monotonic lifetime totals, so a terminal transition cannot
+silently erase the amount that was originally funded. The token balance must
+also cover the pending liability:
 
 ```
 token_balance(contract_address) >= TotalEscrowed
 ```
 
+The three accounting values are maintained incrementally by the
+`EscrowAccounting` module. This keeps lifecycle operations O(1) and gives all
+funding and release paths one owner for their arithmetic.
+
 ### Why this can drift
 
-`TotalEscrowed` ([`InstanceKey::TotalEscrowed`](./storage-model.md)) is a
-running total maintained *incrementally*: `create_transfer` adds to it,
-`claim_transfer` and `cancel_transfer` subtract from it. It is never
-recomputed from the token contract's own balance. That makes every mutating
-entrypoint an O(1) operation instead of an O(n) rescan, but it also means the
-ledger's belief about how much is escrowed can only be trusted if it is
-checked against reality.
-
-Two classes of bug can cause a divergence:
-
-1. **Bookkeeping bugs** in this contract — a missed or double-applied update
-   to `TotalEscrowed` that isn't caught by any other check.
-2. **Non-standard tokens** — a fee-on-transfer or rebasing token contract
-   that credits the escrow with less than the amount requested in a
-   `transfer` call, so the contract receives fewer tokens than
-   `TotalEscrowed` was incremented by.
-
-Either one, left undetected, could let the contract accept and account for
-more than it can actually pay out — an insolvent escrow.
+Bookkeeping bugs can miss or double-apply an update to one of the totals.
+Non-standard tokens can also credit the escrow with less than the amount
+requested, leaving the contract unable to satisfy its pending liability.
+Either case could let the contract accept and account for more than it can
+actually pay out.
 
 ### Enforcement
 
-[`assert_supply_invariant`](https://github.com/RemitFlow/Remitwise-Contracts/blob/main/src/lib.rs)
-compares `token::Client::balance(contract_address)` against
-`TotalEscrowed` and returns [`Error::SupplyInvariantViolation`](./error-reference.md)
-if the balance is less than the tracked liability. It runs automatically,
-immediately after the storage and token updates, in every entrypoint that
-moves escrowed funds:
+`EscrowAccounting::assert_invariant` checks the conservation equation and the
+token balance, returning [`Error::SupplyInvariantViolation`](./error-reference.md)
+if either diverges. It runs after the accounting and token updates in every
+entrypoint that moves funds:
 
 - `create_transfer`
 - `claim_transfer`
 - `cancel_transfer`
+- `sweep_expired`
 
-Because a `Result::Err` returned from a Soroban entrypoint rolls back the
-entire invocation — token movements, storage writes, and events alike — a
-violation aborts the operation as if it never happened rather than leaving
-the contract in a bad state. `batch_operations` inherits this protection
-transitively, since each operation in the batch calls into one of the three
-entrypoints above.
+Funding and release arithmetic is checked before token movement and repeated
+when the state transition is recorded. Overflow and under-release attempts
+return [`Error::AccountingOverflow`](./error-reference.md). Because a
+`Result::Err` returned from a Soroban entrypoint rolls back the entire
+invocation, a failed lifecycle operation cannot leave a token movement without
+its matching accounting update. `batch_operations` inherits the same
+protection through its delegated lifecycle calls.
 
-The same check is also exposed as a public, read-only entrypoint,
-[`check_supply_invariant`](./entrypoint-reference.md#check_supply_invariant-result-error),
-so off-chain monitoring can audit contract solvency at any time without
-waiting for a mutating call to trip it.
+The checks are also exposed through the public, read-only
+[`check_supply_invariant`](./entrypoint-reference.md#check_supply_invariant-result-error)
+entrypoint so off-chain monitoring can audit solvency and conservation.
 
 ---
 
@@ -81,6 +79,9 @@ waiting for a mutating call to trip it.
    configured to hold privileges or funds it cannot exercise.
 4. **`TotalEscrowed` never exceeds `MAX_TOTAL_ESCROWED`.** `create_transfer`
    checks the post-increment total against the cap before accepting funds.
+5. **Terminal releases are one-for-one.** Claims, sender cancellations, and
+   permissionless expiry sweeps all pass through the same checked release
+   transition, so each pending record can reduce escrow exactly once.
 
 ## See Also
 
