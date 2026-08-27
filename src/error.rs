@@ -52,4 +52,6 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// A terminal-transfer cleanup request exceeds its bounded batch size.
+    CleanupBatchTooLarge = 23,
 }

@@ -485,6 +485,27 @@ impl RemitFlowContract {
         storage::get_pending_admin(&env)
     }
 
+    /// Remove terminal transfer records in a bounded, idempotent sweep.
+    ///
+    /// This is intentionally permissionless so an indexer or rent-maintenance
+    /// bot can reclaim storage without an admin transaction. Pending records
+    /// are never removed, even when mixed into the supplied id list. The
+    /// caller controls the ids; the batch limit bounds both storage work and
+    /// transaction budget.
+    pub fn cleanup_terminal_transfers(env: Env, ids: Vec<u64>) -> Result<u32, Error> {
+        if ids.len() > storage::MAX_TERMINAL_CLEANUP {
+            return Err(Error::CleanupBatchTooLarge);
+        }
+
+        let mut removed = 0u32;
+        for id in ids.iter() {
+            if storage::remove_terminal_transfer(&env, id) {
+                removed = removed.saturating_add(1);
+            }
+        }
+        Ok(removed)
+    }
+
     pub fn get_limits(_env: Env) -> ConfiguredLimits {
         ConfiguredLimits {
             max_amount: MAX_AMOUNT,

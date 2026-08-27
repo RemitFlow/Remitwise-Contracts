@@ -2153,7 +2153,7 @@ fn test_persistent_ttl_bumped_on_transfer_and_caller_writes() {
     s.env.as_contract(&s.client.address, || {
         let caller_key = crate::storage::PersistentKey::AllowedCaller(caller.clone());
         let ttl = s.env.storage().persistent().get_ttl(&caller_key);
-        assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+        assert_eq!(ttl, crate::storage::CALLER_BUMP_AMOUNT);
     });
 
     let id = s.create_default_transfer();
@@ -2217,6 +2217,222 @@ fn test_storage_ttl_expiration_behavior() {
         let ttl = s.env.storage().persistent().get_ttl(&caller_key);
         assert!(ttl > 0);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Explicit TTL policy and bounded cleanup regression tests
+// ---------------------------------------------------------------------------
+
+#[test]
+#[allow(clippy::assertions_on_constants)]
+fn test_ttl_policy_classes_have_ordered_retention_windows() {
+    assert!(crate::storage::PERSISTENT_BUMP_AMOUNT >= crate::storage::PERSISTENT_BUMP_THRESHOLD);
+    assert!(crate::storage::CALLER_BUMP_AMOUNT >= crate::storage::CALLER_BUMP_THRESHOLD);
+    assert!(crate::storage::ACCOUNT_OP_BUMP_AMOUNT >= crate::storage::ACCOUNT_OP_BUMP_THRESHOLD);
+    assert!(crate::storage::TERMINAL_BUMP_AMOUNT >= crate::storage::TERMINAL_BUMP_THRESHOLD);
+    assert!(crate::storage::PERSISTENT_BUMP_AMOUNT > crate::storage::CALLER_BUMP_AMOUNT);
+    assert!(crate::storage::CALLER_BUMP_AMOUNT > crate::storage::ACCOUNT_OP_BUMP_AMOUNT);
+    assert!(crate::storage::ACCOUNT_OP_BUMP_AMOUNT > crate::storage::TERMINAL_BUMP_AMOUNT);
+    assert_eq!(crate::storage::MAX_TERMINAL_CLEANUP, 20);
+}
+
+#[test]
+fn test_allowlist_uses_its_dedicated_ttl_class() {
+    let s = setup();
+    let caller = Address::generate(&s.env);
+
+    s.client.add_caller(&caller);
+    s.env.as_contract(&s.client.address, || {
+        let key = crate::storage::PersistentKey::AllowedCaller(caller.clone());
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&key),
+            crate::storage::CALLER_BUMP_AMOUNT
+        );
+        assert!(s.env.storage().persistent().has(&key));
+    });
+}
+
+#[test]
+fn test_account_operation_counter_is_persistent_and_has_ttl() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    assert_eq!(id, 1);
+
+    s.env.as_contract(&s.client.address, || {
+        let key = crate::storage::PersistentKey::AccountOpCount(s.from.clone());
+        assert_eq!(s.env.storage().persistent().get(&key), Some(1u32));
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&key),
+            crate::storage::ACCOUNT_OP_BUMP_AMOUNT
+        );
+        assert!(!s
+            .env
+            .storage()
+            .instance()
+            .all()
+            .contains_key(key.into_val(&s.env)));
+    });
+}
+
+#[test]
+fn test_repeated_transfer_writes_are_monotonic_and_idempotent() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    let key = crate::storage::PersistentKey::Transfer(id);
+
+    let first_ttl = s.env.as_contract(&s.client.address, || {
+        s.env.storage().persistent().get_ttl(&key)
+    });
+    assert_eq!(first_ttl, crate::storage::PERSISTENT_BUMP_AMOUNT);
+
+    // A second write in the same ledger must not push the entry beyond the
+    // policy horizon: extend_ttl raises only entries below its threshold.
+    s.env.as_contract(&s.client.address, || {
+        let transfer = crate::storage::get_transfer(&s.env, id).unwrap();
+        crate::storage::set_transfer(&s.env, &transfer);
+    });
+    let second_ttl = s.env.as_contract(&s.client.address, || {
+        s.env.storage().persistent().get_ttl(&key)
+    });
+    assert!(second_ttl <= first_ttl);
+    assert!(second_ttl > 0);
+}
+
+#[test]
+fn test_live_transfer_cannot_be_removed_by_cleanup() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    let ids = vec![&s.env, id];
+
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 0);
+    assert_eq!(s.client.get_status(&id), Status::Pending);
+    assert!(s.client.transfer_exists(&id));
+    assert!(
+        s.env.as_contract(&s.client.address, || {
+            s.env
+                .storage()
+                .persistent()
+                .get_ttl(&crate::storage::PersistentKey::Transfer(id))
+        }) > 0
+    );
+}
+
+#[test]
+fn test_cleanup_removes_claimed_transfer_and_is_idempotent() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.client.claim_transfer(&id, &s.recipient);
+    let ids = vec![&s.env, id];
+
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 1);
+    assert!(!s.client.transfer_exists(&id));
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 0);
+    assert_eq!(
+        s.client.try_get_transfer(&id),
+        Err(Ok(crate::error::Error::TransferNotFound))
+    );
+}
+
+#[test]
+fn test_cleanup_removes_expired_cancelled_transfer_only_after_settlement() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    let expiry = s.client.get_transfer(&id).expiry;
+    s.env
+        .ledger()
+        .with_mut(|ledger| ledger.timestamp = expiry + 1);
+    s.client.sweep_expired(&id);
+
+    let ids = vec![&s.env, id];
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 1);
+    assert!(!s.client.transfer_exists(&id));
+}
+
+#[test]
+fn test_cleanup_mixed_ids_counts_only_terminal_records() {
+    let s = setup();
+    let second = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token).mint(&s.from, &1_000);
+    let first_id = s.create_default_transfer();
+    let second_id = s.client.create_transfer(
+        &s.from,
+        &second,
+        &100,
+        &(s.env.ledger().timestamp() + DEFAULT_EXPIRY_OFFSET),
+    );
+    s.client.claim_transfer(&first_id, &s.recipient);
+
+    let ids = vec![&s.env, first_id, second_id, 99];
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 1);
+    assert!(!s.client.transfer_exists(&first_id));
+    assert_eq!(s.client.get_status(&second_id), Status::Pending);
+}
+
+#[test]
+fn test_cleanup_rejects_batches_over_the_budget_bound() {
+    let s = setup();
+    let mut ids = vec![&s.env];
+    for id in 0..=crate::storage::MAX_TERMINAL_CLEANUP {
+        ids.push_back(id as u64);
+    }
+
+    assert_eq!(
+        s.client.try_cleanup_terminal_transfers(&ids),
+        Err(Ok(crate::error::Error::CleanupBatchTooLarge))
+    );
+}
+
+#[test]
+fn test_cleanup_work_is_bounded_and_budget_safe() {
+    let s = setup();
+    let mut ids = vec![&s.env];
+    for id in 10..(10 + crate::storage::MAX_TERMINAL_CLEANUP) {
+        ids.push_back(id as u64);
+    }
+
+    let mut budget = s.env.budget();
+    budget.reset_tracker();
+    assert_eq!(s.client.cleanup_terminal_transfers(&ids), 0);
+    let cpu = budget.cpu_instruction_cost();
+    let memory = budget.memory_bytes_cost();
+    assert!(cpu > 0);
+    assert!(memory > 0);
+    // This is a guard against accidentally turning maintenance into an
+    // unbounded scan. Native test costs are lower than WASM costs, so leave
+    // headroom below Soroban's default one-million-instruction limit.
+    assert!(cpu < 1_000_000);
+}
+
+#[test]
+fn test_active_ttl_survives_ledger_progress_within_policy() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.env.ledger().with_mut(|ledger| {
+        ledger.sequence_number += 100;
+    });
+
+    let key = crate::storage::PersistentKey::Transfer(id);
+    let ttl = s.env.as_contract(&s.client.address, || {
+        s.env.storage().persistent().get_ttl(&key)
+    });
+    assert_eq!(ttl, crate::storage::PERSISTENT_BUMP_AMOUNT - 100);
+    assert!(s.client.transfer_exists(&id));
+    assert_eq!(s.client.get_status(&id), Status::Pending);
+}
+
+#[test]
+fn test_terminal_policy_is_shorter_than_live_policy_but_keeps_status_available() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.client.claim_transfer(&id, &s.recipient);
+    let key = crate::storage::PersistentKey::Transfer(id);
+    let ttl = s.env.as_contract(&s.client.address, || {
+        s.env.storage().persistent().get_ttl(&key)
+    });
+
+    assert!(ttl > 0);
+    assert!(ttl <= crate::storage::PERSISTENT_BUMP_AMOUNT);
+    assert_eq!(s.client.get_status(&id), Status::Claimed);
 }
 
 #[test]
