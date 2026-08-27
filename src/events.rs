@@ -49,6 +49,13 @@ pub fn caller_removed(env: &Env, caller: &Address) {
     env.events().publish(topics, caller.clone());
 }
 
+/// Publish one auditable versioned caller-registry transition.
+pub fn caller_registry_changed(env: &Env, version: u64, admin: &Address, caller: &Address, allowed: bool) {
+    let topics = (Symbol::new(env, "caller_registry_changed"), version);
+    env.events()
+        .publish(topics, (admin.clone(), caller.clone(), allowed));
+}
+
 /// Publish an event recording that the current admin has nominated a new admin.
 ///
 /// Emitted by `transfer_admin`. The transfer is not yet complete; the nominee

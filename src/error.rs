@@ -52,4 +52,8 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// A caller update was not the next registry version.
+    StaleCallerUpdate = 23,
+    /// The caller registry version cannot be incremented safely.
+    CallerUpdateVersionOverflow = 24,
 }
