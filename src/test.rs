@@ -2272,3 +2272,99 @@ fn test_sweep_expired_not_pending_fails() {
     let res = s.client.try_sweep_expired(&id);
     assert_eq!(res, Err(Ok(crate::error::Error::NotPending)));
 }
+
+#[test]
+fn test_sweep_expired_batch_respects_expiry_boundary_and_skips_live_transfers() {
+    let s = setup();
+    let expiry = s.env.ledger().timestamp() + 10;
+    let expired_id = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &100, &expiry);
+    let live_id = s.client.create_transfer(
+        &s.from,
+        &s.recipient,
+        &100,
+        &(expiry + DEFAULT_EXPIRY_OFFSET),
+    );
+
+    s.env.ledger().with_mut(|ledger| ledger.timestamp = expiry);
+    assert_eq!(s.client.sweep_expired_batch(&0, &2), vec![&s.env]);
+    assert_eq!(s.client.get_status(&expired_id), Status::Pending);
+
+    s.env.ledger().with_mut(|ledger| ledger.timestamp += 1);
+    assert_eq!(
+        s.client.sweep_expired_batch(&0, &2),
+        vec![&s.env, expired_id]
+    );
+    assert_eq!(s.client.get_status(&expired_id), Status::Cancelled);
+    assert_eq!(s.client.get_status(&live_id), Status::Pending);
+}
+
+#[test]
+fn test_sweep_expired_batch_is_permissionless_idempotent_and_conserves_funds() {
+    let s = setup();
+    let id = s.create_default_transfer();
+    s.env
+        .ledger()
+        .with_mut(|ledger| ledger.timestamp += DEFAULT_EXPIRY_OFFSET + 1);
+    let sender_before = s.token_client().balance(&s.from);
+    let escrow_before = s.token_client().balance(&s.client.address);
+    let liability_before = s.client.total_escrowed();
+
+    // Disable the fixture's auth mocking: sweeping must not require either
+    // sender or administrator authorization.
+    s.env.set_auths(&[]);
+    assert_eq!(s.client.sweep_expired_batch(&id, &1), vec![&s.env, id]);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        sender_before + DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(
+        s.token_client().balance(&s.client.address),
+        escrow_before - DEFAULT_TRANSFER_AMOUNT
+    );
+    assert_eq!(
+        s.client.total_escrowed(),
+        liability_before - DEFAULT_TRANSFER_AMOUNT
+    );
+    s.client.check_supply_invariant();
+
+    // Retrying the same range has no refund side effect.
+    assert_eq!(s.client.sweep_expired_batch(&id, &1), vec![&s.env]);
+    assert_eq!(
+        s.token_client().balance(&s.from),
+        sender_before + DEFAULT_TRANSFER_AMOUNT
+    );
+}
+
+#[test]
+fn test_sweep_expired_batch_limits_work_and_advances_by_cursor() {
+    let s = setup();
+    let expiry = s.future_expiry();
+    let first = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    let second = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    let third = s
+        .client
+        .create_transfer(&s.from, &s.recipient, &200, &expiry);
+    s.env
+        .ledger()
+        .with_mut(|ledger| ledger.timestamp += DEFAULT_EXPIRY_OFFSET + 1);
+
+    assert_eq!(
+        s.client.sweep_expired_batch(&first, &2),
+        vec![&s.env, first, second]
+    );
+    assert_eq!(s.client.get_status(&first), Status::Cancelled);
+    assert_eq!(s.client.get_status(&second), Status::Cancelled);
+    assert_eq!(s.client.get_status(&third), Status::Pending);
+
+    assert_eq!(
+        s.client.sweep_expired_batch(&third, &1),
+        vec![&s.env, third]
+    );
+    assert_eq!(s.client.get_status(&third), Status::Cancelled);
+}

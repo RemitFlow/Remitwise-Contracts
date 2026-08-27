@@ -52,6 +52,11 @@ pub const PRIVILEGED_COOLDOWN: u64 = 300;
 pub const MAX_PAGE_SIZE: u32 = 100;
 /// Maximum number of operations allowed in a single batch_operations call.
 pub const MAX_BATCH_SIZE: u32 = 50;
+/// Maximum number of transfer ids inspected by one expiry sweep batch.
+///
+/// The limit bounds both storage reads and token transfers, keeping a sweep
+/// invocation within a predictable transaction budget.
+pub const MAX_SWEEP_BATCH_SIZE: u32 = 50;
 
 fn require_external_address(env: &Env, address: &Address) -> Result<(), Error> {
     if *address == env.current_contract_address() {
@@ -531,5 +536,59 @@ impl RemitFlowContract {
         events::cancelled(&env, id, &from, amount);
 
         Ok(())
+    }
+
+    /// Sweeps expired pending transfers in an ascending, bounded id range.
+    ///
+    /// `start_id` is inclusive and `0` is clamped to `1`. At most
+    /// `min(limit, MAX_SWEEP_BATCH_SIZE)` ids are inspected, including ids
+    /// whose records have expired from storage or have already reached a
+    /// terminal status. This makes cursored retries deterministic and bounds
+    /// the work performed by a single invocation. A transfer is swept only
+    /// when the ledger timestamp is strictly greater than its expiry; funds
+    /// are returned to its original sender. The call is permissionless and
+    /// returns the ids swept during this invocation. Repeating a range is
+    /// idempotent because terminal records are skipped.
+    pub fn sweep_expired_batch(env: Env, start_id: u64, limit: u32) -> Result<Vec<u64>, Error> {
+        let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        let mut swept = Vec::new(&env);
+        let mut id = start_id.max(1);
+        let mut inspected = 0;
+        let max_inspected = limit.min(MAX_SWEEP_BATCH_SIZE);
+        let last = storage::get_counter(&env);
+        let now = env.ledger().timestamp();
+
+        while id <= last && inspected < max_inspected {
+            if let Some(mut transfer) = storage::get_transfer(&env, id) {
+                if transfer.status == Status::Pending && now > transfer.expiry {
+                    token::Client::new(&env, &token).transfer(
+                        &env.current_contract_address(),
+                        &transfer.from,
+                        &transfer.amount,
+                    );
+                    transfer.status = Status::Cancelled;
+                    storage::set_total_escrowed(
+                        &env,
+                        storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
+                    );
+                    let from = transfer.from.clone();
+                    let amount = transfer.amount;
+                    storage::set_transfer(&env, &transfer);
+                    events::cancelled(&env, id, &from, amount);
+                    swept.push_back(id);
+                }
+            }
+            inspected += 1;
+            match id.checked_add(1) {
+                Some(next_id) => id = next_id,
+                None => break,
+            }
+        }
+
+        if !swept.is_empty() {
+            assert_supply_invariant(&env, &token)?;
+            storage::extend_instance(&env);
+        }
+        Ok(swept)
     }
 }

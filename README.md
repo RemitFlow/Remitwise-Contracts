@@ -130,7 +130,12 @@ Each transfer moves through the following states:
 - `Cancelled` — sender reclaimed the funds after expiry (terminal).
 
 Only `Pending` transfers can be claimed or cancelled. Claims must happen on or
-before the expiry timestamp; cancellations are only allowed strictly after it.
+before the expiry timestamp; cancellations and expiry sweeping are only allowed
+strictly after it. `sweep_expired_batch(start_id, limit)` is permissionless:
+it refunds expired pending transfers to their original senders and returns the
+ids swept. It examines at most 50 sequential ids per call (including terminal
+or missing records), so callers advance the cursor themselves and retries are
+safe: terminal records are skipped and cannot be refunded twice.
 
 ## Batch operations
 
