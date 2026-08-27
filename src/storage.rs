@@ -80,6 +80,8 @@ pub enum PersistentKey {
     AllowedCaller(Address),
     /// Per-account operation counter, keyed by account address.
     AccountOpCount(Address),
+    /// Idempotency receipt for a completed batch invocation.
+    Batch(u64),
     /// Replay marker for an exact versioned caller update.
     CallerUpdate(u64, Address, bool),
 }
@@ -296,6 +298,22 @@ pub fn get_transfer(env: &Env, id: u64) -> Option<Transfer> {
 /// Returns true if a transfer with the given id exists.
 pub fn has_transfer(env: &Env, id: u64) -> bool {
     env.storage().persistent().has(&PersistentKey::Transfer(id))
+}
+
+/// Store the receipt for a completed idempotent batch invocation.
+pub fn set_batch_receipt(env: &Env, batch_id: u64, receipt: &crate::types::BatchReceipt) {
+    let key = PersistentKey::Batch(batch_id);
+    env.storage().persistent().set(&key, receipt);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_BUMP_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
+/// Read an idempotent batch receipt, if the batch id has been completed.
+pub fn get_batch_receipt(env: &Env, batch_id: u64) -> Option<crate::types::BatchReceipt> {
+    env.storage()
+        .persistent()
+        .get(&PersistentKey::Batch(batch_id))
 }
 
 /// Store a caller's allowlist status in persistent storage.

@@ -20,6 +20,18 @@ The batch is bounded to at most MAX_BATCH_SIZE (50) operations per call; a large
 Successful results preserve input order. `Create` returns `Created(id)`;
 `Claim` returns `Claimed`; and `Cancel` returns `Cancelled`.
 
+### `batch_operations_idempotent(batch_id: u64, operations: Vec<BatchOperation>) -> Result<Vec<BatchOperationResult>, Error>`
+
+Provides the same atomic execution semantics with a durable retry key. The
+first successful invocation stores the exact input operations and ordered
+results. A retry with the same `batch_id` and identical payload returns that
+stored result without executing any item again. Reusing the id with another
+payload returns `BatchIdConflict`; zero is rejected with `InvalidBatchId`.
+
+Failed batches do not reserve their id, because the receipt is written only
+after every operation succeeds. Receipts are persistent and receive the same
+TTL policy as transfer records.
+
 ## Admin Management
 
 ### `transfer_admin(new_admin: Address) -> Result<(), Error>`
