@@ -11,6 +11,7 @@ use crate::test_utils::{
 use crate::types::{
     BatchOperation, BatchOperationResult, ClaimTransferOperation, CreateTransferOperation, Status,
 };
+use crate::events::{ActorEvent, AdminTransferEvent, CancelledEvent, ClaimedEvent, CreatedEvent, InitEvent};
 use crate::{RemitFlowContract, RemitFlowContractClient};
 
 /// Test harness bundling the contract client, token, and key addresses.
@@ -1572,9 +1573,10 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "init"));
         assert_eq!(topics.len(), 1);
 
-        let (admin, token): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
-        assert_eq!(token, s.token);
+        let payload: InitEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.admin, s.admin);
+        assert_eq!(payload.token, s.token);
     }
 
     // Event 1: caller_added
@@ -1590,8 +1592,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 2: caller_removed
@@ -1607,8 +1610,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 3: caller_added
@@ -1624,8 +1628,9 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let caller: Address = data.clone().into_val(&s.env);
-        assert_eq!(caller, s.from);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.from);
     }
 
     // Event 4: paused
@@ -1638,8 +1643,9 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "paused"));
         assert_eq!(topics.len(), 1);
 
-        let admin: Address = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.admin);
     }
 
     // Event 5: unpaused
@@ -1652,8 +1658,9 @@ fn test_event_payload_contents() {
         assert_eq!(topic_symbol, soroban_sdk::Symbol::new(&s.env, "unpaused"));
         assert_eq!(topics.len(), 1);
 
-        let admin: Address = data.clone().into_val(&s.env);
-        assert_eq!(admin, s.admin);
+        let payload: ActorEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.actor, s.admin);
     }
 
     // Event 6: created (id1)
@@ -1669,12 +1676,13 @@ fn test_event_payload_contents() {
         assert_eq!(id, id1);
         assert_eq!(topics.len(), 2);
 
-        let (from, recipient, amount, exp): (Address, Address, i128, u64) =
-            data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 100);
-        assert_eq!(exp, expiry);
+        let payload: CreatedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id1);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 100);
+        assert_eq!(payload.expiry, expiry);
     }
 
     // Event 7: claimed
@@ -1690,9 +1698,11 @@ fn test_event_payload_contents() {
         assert_eq!(id, id1);
         assert_eq!(topics.len(), 2);
 
-        let (recipient, amount): (Address, i128) = data.clone().into_val(&s.env);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 100);
+        let payload: ClaimedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id1);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 100);
     }
 
     // Event 8: created (id2)
@@ -1708,12 +1718,13 @@ fn test_event_payload_contents() {
         assert_eq!(id, id2);
         assert_eq!(topics.len(), 2);
 
-        let (from, recipient, amount, exp): (Address, Address, i128, u64) =
-            data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(recipient, s.recipient);
-        assert_eq!(amount, 200);
-        assert_eq!(exp, expiry);
+        let payload: CreatedEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id2);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.recipient, s.recipient);
+        assert_eq!(payload.amount, 200);
+        assert_eq!(payload.expiry, expiry);
     }
 
     // Event 9: cancelled
@@ -1729,9 +1740,11 @@ fn test_event_payload_contents() {
         assert_eq!(id, id2);
         assert_eq!(topics.len(), 2);
 
-        let (from, amount): (Address, i128) = data.clone().into_val(&s.env);
-        assert_eq!(from, s.from);
-        assert_eq!(amount, 200);
+        let payload: CancelledEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.transfer_id, id2);
+        assert_eq!(payload.from, s.from);
+        assert_eq!(payload.amount, 200);
     }
 
     // Event 10: admin_transfer_started
@@ -1747,9 +1760,10 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let (current_admin, pending_admin): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(current_admin, s.admin);
-        assert_eq!(pending_admin, new_admin);
+        let payload: AdminTransferEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.old_admin, s.admin);
+        assert_eq!(payload.new_admin, new_admin);
     }
 
     // Event 11: admin_transfer_completed
@@ -1765,9 +1779,10 @@ fn test_event_payload_contents() {
         );
         assert_eq!(topics.len(), 1);
 
-        let (old_admin, newest_admin): (Address, Address) = data.clone().into_val(&s.env);
-        assert_eq!(old_admin, s.admin);
-        assert_eq!(newest_admin, new_admin);
+        let payload: AdminTransferEvent = data.clone().into_val(&s.env);
+        assert_eq!(payload.metadata.schema_version, 1);
+        assert_eq!(payload.old_admin, s.admin);
+        assert_eq!(payload.new_admin, new_admin);
     }
 }
 
