@@ -117,6 +117,28 @@ refunds, including permissionless expiry sweeps.
 * **Authorization**: None (public view)
 * **Effect**: None
 
+## Expiry Sweeping
+
+### `sweep_expired_batch(start_id: u64, limit: u32) -> Result<Vec<u64>, Error>`
+
+Permissionlessly refunds expired pending transfers to their original senders.
+
+* **Authorization**: None. This is deliberate so anyone can run cleanup bots;
+  the payout is always fixed to the recorded sender, never the caller.
+* **Expiry boundary**: A transfer is eligible only when
+  `ledger_timestamp > expiry`. At `ledger_timestamp == expiry`, it remains
+  claimable and cannot be swept.
+* **Bounded work**: `start_id` is inclusive (`0` is treated as `1`) and the
+  method inspects at most `min(limit, MAX_SWEEP_BATCH_SIZE)` sequential ids,
+  where `MAX_SWEEP_BATCH_SIZE` is 50. Missing and terminal records count toward
+  the bound, ensuring a sparse id range cannot make a sweep unbounded.
+* **Result and retry**: Returns only ids swept by this call. Live, missing, and
+  terminal records are skipped. Therefore callers can retry a cursor safely:
+  a terminal transfer cannot be refunded twice.
+* **Effects**: Each swept transfer becomes `Cancelled`, reduces
+  `TotalEscrowed`, emits the normal `cancelled` event, and transfers its amount
+  from contract escrow to the recorded sender.
+
 ## Transfer Queries
 
 ### `get_transfers_paged(start_id: u64, limit: u32) -> Vec<Transfer>`
@@ -140,4 +162,3 @@ Returns the contract's configured operational limits.
 
 * **Authorization**: None (public view, callable pre/post-initialization)
 * **Returns**: [`ConfiguredLimits`](data-types.md#configuredlimits) containing `max_amount`, `max_expiry_window`, `max_total_escrowed`, and `max_page_size`.
-

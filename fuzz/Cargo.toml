@@ -9,6 +9,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1.3", features = ["derive"] }
+soroban-sdk = { version = "=21.7.6", features = ["testutils"] }
 
 [dependencies.remitflow-contract]
 path = ".."
