@@ -10,6 +10,7 @@
 #[cfg(test)]
 extern crate std;
 
+mod accounting;
 mod error;
 mod events;
 pub mod math;
@@ -18,6 +19,7 @@ mod types;
 
 #[cfg(test)]
 mod batch_tests;
+mod accounting_tests;
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]
@@ -29,6 +31,7 @@ mod test_utils;
 
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, BytesN, Env, Vec};
 
+use crate::accounting::EscrowAccounting;
 use crate::error::Error;
 use crate::types::{
     BatchOperation, BatchOperationResult, BatchReceipt, ConfiguredLimits, Status, Transfer,
@@ -89,14 +92,6 @@ fn require_cooldown(env: &Env) -> Result<(), Error> {
 /// Record that a privileged call just executed at the current ledger time.
 fn record_privileged_call(env: &Env) {
     storage::set_last_privileged_call(env, env.ledger().timestamp());
-}
-
-fn assert_supply_invariant(env: &Env, token: &Address) -> Result<(), Error> {
-    let balance = token::Client::new(env, token).balance(&env.current_contract_address());
-    if balance < storage::get_total_escrowed(env) {
-        return Err(Error::SupplyInvariantViolation);
-    }
-    Ok(())
 }
 
 /// Execute a batch atomically and preserve one result slot per input item.
@@ -192,6 +187,9 @@ impl RemitFlowContract {
         storage::set_admin(&env, &admin);
         storage::set_token(&env, &token);
         storage::set_counter(&env, 0);
+        storage::set_total_escrowed(&env, 0);
+        storage::set_total_funded(&env, 0);
+        storage::set_total_released(&env, 0);
         storage::set_initialized_at(&env, env.ledger().timestamp());
         storage::extend_instance(&env);
         events::init(&env, &admin, &token);
@@ -332,12 +330,7 @@ impl RemitFlowContract {
         if amount > MAX_AMOUNT {
             return Err(Error::AmountTooLarge);
         }
-        let total_escrowed = storage::get_total_escrowed(&env);
-        let updated_total =
-            math::checked_add_amount(total_escrowed, amount).ok_or(Error::AmountTooLarge)?;
-        if updated_total > MAX_TOTAL_ESCROWED {
-            return Err(Error::EscrowCapReached);
-        }
+        EscrowAccounting::validate_funding(&env, amount)?;
         let now = env.ledger().timestamp();
         if expiry <= now {
             return Err(Error::InvalidExpiry);
@@ -365,9 +358,9 @@ impl RemitFlowContract {
         };
         storage::set_transfer(&env, &transfer);
         storage::set_counter(&env, id);
-        storage::set_total_escrowed(&env, updated_total);
+        EscrowAccounting::record_funding(&env, amount)?;
         storage::increment_account_op_count(&env, &from);
-        assert_supply_invariant(&env, &token)?;
+        EscrowAccounting::assert_invariant(&env, &token)?;
         storage::extend_instance(&env);
         events::created(&env, id, &from, &recipient, amount, expiry);
         Ok(id)
@@ -388,6 +381,7 @@ impl RemitFlowContract {
         recipient.require_auth();
 
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        EscrowAccounting::validate_release(&env, transfer.amount)?;
         token::Client::new(&env, &token).transfer(
             &env.current_contract_address(),
             &recipient,
@@ -395,11 +389,8 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Claimed;
-        storage::set_total_escrowed(
-            &env,
-            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
-        );
-        assert_supply_invariant(&env, &token)?;
+        EscrowAccounting::record_release(&env, transfer.amount)?;
+        EscrowAccounting::assert_invariant(&env, &token)?;
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -422,6 +413,7 @@ impl RemitFlowContract {
         from.require_auth();
 
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        EscrowAccounting::validate_release(&env, transfer.amount)?;
         token::Client::new(&env, &token).transfer(
             &env.current_contract_address(),
             &from,
@@ -429,11 +421,8 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Cancelled;
-        storage::set_total_escrowed(
-            &env,
-            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
-        );
-        assert_supply_invariant(&env, &token)?;
+        EscrowAccounting::record_release(&env, transfer.amount)?;
+        EscrowAccounting::assert_invariant(&env, &token)?;
         let amount = transfer.amount;
         storage::set_transfer(&env, &transfer);
         storage::extend_instance(&env);
@@ -477,23 +466,22 @@ impl RemitFlowContract {
     }
 
     pub fn total_escrowed(env: Env) -> i128 {
-        let last = storage::get_counter(&env);
-        let mut total: i128 = 0;
-        let mut id = 1u64;
-        while id <= last {
-            if let Some(transfer) = storage::get_transfer(&env, id) {
-                if transfer.status == Status::Pending {
-                    total = math::saturating_add_amount(total, transfer.amount);
-                }
-            }
-            id += 1;
-        }
-        total
+        storage::get_total_escrowed(&env)
+    }
+
+    /// Return the cumulative amount funded into escrow.
+    pub fn total_funded(env: Env) -> i128 {
+        storage::get_total_funded(&env)
+    }
+
+    /// Return the cumulative amount released by claims and refunds.
+    pub fn total_released(env: Env) -> i128 {
+        storage::get_total_released(&env)
     }
 
     pub fn check_supply_invariant(env: Env) -> Result<(), Error> {
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
-        assert_supply_invariant(&env, &token)
+        EscrowAccounting::assert_invariant(&env, &token)
     }
 
     pub fn is_expired(env: Env, id: u64) -> Result<bool, Error> {
@@ -674,6 +662,7 @@ impl RemitFlowContract {
         }
 
         let token = storage::get_token(&env).ok_or(Error::NotInitialized)?;
+        EscrowAccounting::validate_release(&env, transfer.amount)?;
         token::Client::new(&env, &token).transfer(
             &env.current_contract_address(),
             &transfer.from,
@@ -681,11 +670,8 @@ impl RemitFlowContract {
         );
 
         transfer.status = Status::Cancelled;
-        storage::set_total_escrowed(
-            &env,
-            storage::get_total_escrowed(&env).saturating_sub(transfer.amount),
-        );
-        assert_supply_invariant(&env, &token)?;
+        EscrowAccounting::record_release(&env, transfer.amount)?;
+        EscrowAccounting::assert_invariant(&env, &token)?;
 
         let amount = transfer.amount;
         let from = transfer.from.clone();
@@ -745,7 +731,7 @@ impl RemitFlowContract {
         }
 
         if !swept.is_empty() {
-            assert_supply_invariant(&env, &token)?;
+            EscrowAccounting::assert_invariant(&env, &token)?;
             storage::extend_instance(&env);
         }
         Ok(swept)

@@ -97,19 +97,37 @@ Queries whether the given address is authorized on the privileged callers allowl
 ### `check_supply_invariant() -> Result<(), Error>`
 
 Verifies that the contract's actual token balance can still cover its
-internally tracked `TotalEscrowed` liability.
+internally tracked `TotalEscrowed` liability and that
+`TotalFunded = TotalEscrowed + TotalReleased`.
 
 * **Authorization**: None (public view)
 * **Effect**: None; performs no writes. Returns `Ok(())` when
   `token_balance(contract_address) >= TotalEscrowed`.
 * **Errors**: `NotInitialized` if the contract is not initialized;
-  `SupplyInvariantViolation` if the balance has fallen below the tracked
-  liability.
+  `SupplyInvariantViolation` if the conservation equation or token solvency
+  check fails.
 * This is the same check that runs automatically after every entrypoint
   that moves escrowed funds (`create_transfer`, `claim_transfer`,
-  `cancel_transfer`); calling it directly lets off-chain monitoring audit
-  solvency independently. See [Invariants](./invariants.md) for the
-  rationale.
+  `cancel_transfer`, `sweep_expired`); calling it directly lets off-chain
+  monitoring audit solvency independently. See [Invariants](./invariants.md)
+  for the rationale.
+
+### `total_funded() -> i128`
+
+Returns the lifetime amount accepted into escrow. This total never decreases;
+it is paired with `total_escrowed()` and `total_released()` by the conservation
+equation `total_funded = total_escrowed + total_released`.
+
+* **Authorization**: None (public view)
+* **Effect**: None
+
+### `total_released() -> i128`
+
+Returns the lifetime amount released through recipient claims and sender
+refunds, including permissionless expiry sweeps.
+
+* **Authorization**: None (public view)
+* **Effect**: None
 
 ## Expiry Sweeping
 

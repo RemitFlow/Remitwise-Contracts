@@ -13,7 +13,7 @@ meaning, and the entrypoints that can produce it.
 |------|---------|-------------|-------------|
 | 1 | `AlreadyInitialized` | The contract has already been initialised with an admin and token address. Second calls to `initialize` are rejected. | `initialize` |
 | 2 | `NotInitialized` | The contract has not been initialised yet. Most public entrypoints require initialisation before they can proceed. | `initialize`, `get_admin`, `get_token`, `get_initialized_at`, `pause`, `unpause`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `remove_caller` |
-| 3 | `TransferNotFound` | No record exists for the supplied transfer `id`. Either the id was never created or it was assigned to a transfer that was purged. | `get_transfer`, `get_status`, `transfer_exists`, `is_expired`, `claim_transfer`, `cancel_transfer` |
+| 3 | `TransferNotFound` | No record exists for the supplied transfer `id`. Either the id was never created or it was assigned to a transfer that was purged. | `get_transfer`, `get_status`, `transfer_exists`, `is_expired`, `claim_transfer`, `cancel_transfer`, `sweep_expired` |
 | 4 | `InvalidAmount` | The supplied transfer `amount` is not strictly positive (zero or negative). | `create_transfer` |
 | 5 | `InvalidExpiry` | The supplied `expiry` timestamp is not in the future â€” it must be strictly greater than the current ledger timestamp. | `create_transfer` |
 | 6 | `CounterOverflow` | The transfer counter would overflow its `u64` range. The contract supports at most `u64::MAX` transfers in its lifetime. | `create_transfer` |
@@ -31,8 +31,9 @@ meaning, and the entrypoints that can produce it.
 | 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
 | 20 | `SupplyInvariantViolation` | The contract's actual token balance is less than its internally tracked `TotalEscrowed` liability. Checked automatically after every entrypoint that moves escrowed funds; see [Invariants](./invariants.md). | `create_transfer`, `claim_transfer`, `cancel_transfer`, `check_supply_invariant` |
 | 22 | `BatchTooLarge` | The number of operations in a `batch_operations` call exceeds `MAX_BATCH_SIZE`. | `batch_operations`, `batch_operations_idempotent` |
-| 24 | `InvalidBatchId` | The idempotent batch key is zero; callers must provide a non-zero key. | `batch_operations_idempotent` |
-| 25 | `BatchIdConflict` | An idempotent batch key was reused with a different operation payload. | `batch_operations_idempotent` |
+| 23 | `AccountingOverflow` | A checked escrow total would overflow, or a terminal transition would release more than the pending liability. | `create_transfer`, `claim_transfer`, `cancel_transfer`, `sweep_expired` |
+| 26 | `InvalidBatchId` | The idempotent batch key is zero; callers must provide a non-zero key. | `batch_operations_idempotent` |
+| 31 | `BatchIdConflict` | An idempotent batch key was reused with a different operation payload. | `batch_operations_idempotent` |
 
 ---
 
@@ -46,17 +47,18 @@ meaning, and the entrypoints that can produce it.
 | `pause`, `unpause` | `NotInitialized` (2) |
 | `add_caller` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `remove_caller` | `NotInitialized` (2) |
-| `create_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6), `SupplyInvariantViolation` (20) |
-| `claim_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9), `SupplyInvariantViolation` (20) |
-| `cancel_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10), `SupplyInvariantViolation` (20) |
+| `create_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `ContractPaused` (13), `CallerNotAllowed` (16), `InvalidAmount` (4), `AmountTooLarge` (12), `EscrowCapReached` (15), `InvalidExpiry` (5), `ExpiryTooFar` (14), `SameParty` (11), `CounterOverflow` (6), `AccountingOverflow` (23), `SupplyInvariantViolation` (20) |
+| `claim_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `Expired` (9), `AccountingOverflow` (23), `SupplyInvariantViolation` (20) |
+| `cancel_transfer` | `NotInitialized` (2), `InvalidAddress` (18), `TransferNotFound` (3), `Unauthorized` (7), `NotPending` (8), `NotExpired` (10), `AccountingOverflow` (23), `SupplyInvariantViolation` (20) |
+| `sweep_expired` | `NotInitialized` (2), `TransferNotFound` (3), `NotPending` (8), `NotExpired` (10), `AccountingOverflow` (23), `SupplyInvariantViolation` (20) |
 | `check_supply_invariant` | `NotInitialized` (2), `SupplyInvariantViolation` (20) |
 | `transfer_admin` | `NotInitialized` (2), `InvalidAddress` (18) |
 | `accept_admin` | `NoPendingAdmin` (17), `NotInitialized` (2) |
 | `get_pending_admin` | Noneâ€  |
 | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)â€¡ |
-| `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | Noneâ€  |
+| `total_escrowed`, `total_funded`, `total_released`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | Noneâ€  |
 | `batch_operations` | Any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` depending on the operations in the batch |
-| `batch_operations_idempotent` | `InvalidBatchId` (24), `BatchIdConflict` (25), `BatchTooLarge` (22), or any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` |
+| `batch_operations_idempotent` | `InvalidBatchId` (26), `BatchIdConflict` (31), `BatchTooLarge` (22), or any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` |
 
 \* `initialize` does not return `NotInitialized` (it is the call that performs initialisation).  
 â€  Returns `Ok` / plain value instead of `Result`; no error path.  
