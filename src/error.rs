@@ -52,4 +52,8 @@ pub enum Error {
     /// The number of operations in a batch_operations call exceeds
     /// MAX_BATCH_SIZE.
     BatchTooLarge = 22,
+    /// The supplied idempotency key is zero and cannot identify a batch.
+    InvalidBatchId = 24,
+    /// An idempotency key was reused with a different batch payload.
+    BatchIdConflict = 25,
 }

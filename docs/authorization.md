@@ -73,3 +73,12 @@ before performing any other validation or state change:
 
 `batch_operations` inherits this guard transparently, since it delegates to
 `create_transfer`, `claim_transfer`, and `cancel_transfer` for each operation.
+
+## Batch Retry Semantics
+
+`batch_operations` is atomic and returns results in input order. Integrations
+that may retry transactions should use
+`batch_operations_idempotent(batch_id, operations)`. Its non-zero `batch_id`
+is recorded only after the complete batch succeeds. Replaying the same id and
+payload returns the stored result without reapplying transfers; reusing the id
+with a different payload fails with `BatchIdConflict`.

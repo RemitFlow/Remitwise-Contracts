@@ -17,6 +17,8 @@ mod storage;
 mod types;
 
 #[cfg(test)]
+mod batch_tests;
+#[cfg(test)]
 mod fixtures;
 #[cfg(test)]
 mod test;
@@ -25,7 +27,9 @@ mod test_utils;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env, Vec};
 
 use crate::error::Error;
-use crate::types::{BatchOperation, BatchOperationResult, ConfiguredLimits, Status, Transfer};
+use crate::types::{
+    BatchOperation, BatchOperationResult, BatchReceipt, ConfiguredLimits, Status, Transfer,
+};
 
 contractmeta!(key = "name", val = "RemitFlow");
 contractmeta!(key = "version", val = "0.1.0");
@@ -86,6 +90,42 @@ fn assert_supply_invariant(env: &Env, token: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Execute a batch atomically and preserve one result slot per input item.
+fn execute_batch_operations(
+    env: Env,
+    operations: Vec<BatchOperation>,
+) -> Result<Vec<BatchOperationResult>, Error> {
+    if operations.len() > MAX_BATCH_SIZE {
+        return Err(Error::BatchTooLarge);
+    }
+
+    let mut results = Vec::new(&env);
+    for operation in operations.iter() {
+        let result = match operation {
+            BatchOperation::Create(params) => {
+                let id = RemitFlowContract::create_transfer(
+                    env.clone(),
+                    params.from,
+                    params.recipient,
+                    params.amount,
+                    params.expiry,
+                )?;
+                BatchOperationResult::Created(id)
+            },
+            BatchOperation::Claim(params) => {
+                RemitFlowContract::claim_transfer(env.clone(), params.id, params.recipient)?;
+                BatchOperationResult::Claimed
+            },
+            BatchOperation::Cancel(params) => {
+                RemitFlowContract::cancel_transfer(env.clone(), params.id, params.from)?;
+                BatchOperationResult::Cancelled
+            },
+        };
+        results.push_back(result);
+    }
+    Ok(results)
+}
+
 /// The RemitFlow remittance escrow contract.
 #[contract]
 pub struct RemitFlowContract;
@@ -96,33 +136,40 @@ impl RemitFlowContract {
         env: Env,
         operations: Vec<BatchOperation>,
     ) -> Result<Vec<BatchOperationResult>, Error> {
-        if operations.len() > MAX_BATCH_SIZE {
-            return Err(Error::BatchTooLarge);
+        execute_batch_operations(env, operations)
+    }
+
+    /// Execute an atomic batch with a durable idempotency key.
+    ///
+    /// A successful retry with the same `batch_id` and identical operations
+    /// returns the original indexed result vector without reapplying any
+    /// transfer. Reusing an id with a different payload fails closed.
+    pub fn batch_operations_idempotent(
+        env: Env,
+        batch_id: u64,
+        operations: Vec<BatchOperation>,
+    ) -> Result<Vec<BatchOperationResult>, Error> {
+        if batch_id == 0 {
+            return Err(Error::InvalidBatchId);
         }
-        let mut results = Vec::new(&env);
-        for operation in operations.iter() {
-            let result = match operation {
-                BatchOperation::Create(params) => {
-                    let id = Self::create_transfer(
-                        env.clone(),
-                        params.from,
-                        params.recipient,
-                        params.amount,
-                        params.expiry,
-                    )?;
-                    BatchOperationResult::Created(id)
-                },
-                BatchOperation::Claim(params) => {
-                    Self::claim_transfer(env.clone(), params.id, params.recipient)?;
-                    BatchOperationResult::Claimed
-                },
-                BatchOperation::Cancel(params) => {
-                    Self::cancel_transfer(env.clone(), params.id, params.from)?;
-                    BatchOperationResult::Cancelled
-                },
-            };
-            results.push_back(result);
+
+        if let Some(receipt) = storage::get_batch_receipt(&env, batch_id) {
+            if receipt.operations != operations {
+                return Err(Error::BatchIdConflict);
+            }
+            return Ok(receipt.results);
         }
+
+        let results = execute_batch_operations(env.clone(), operations.clone())?;
+        storage::set_batch_receipt(
+            &env,
+            batch_id,
+            &BatchReceipt {
+                operations,
+                results: results.clone(),
+            },
+        );
+        storage::extend_instance(&env);
         Ok(results)
     }
 

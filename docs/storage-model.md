@@ -64,6 +64,7 @@ Instance and persistent stores are separate namespaces at the Soroban host level
 |---|---|---|---|
 | `Transfer(u64)` | Transfer id | `Transfer` struct | Full record for a single escrow transfer |
 | `AllowedCaller(Address)` | Caller address | `bool` | Allowlist membership flag |
+| `Batch(u64)` | Idempotency key | `BatchReceipt` struct | Original operations and ordered results for a completed batch |
 
 ---
 

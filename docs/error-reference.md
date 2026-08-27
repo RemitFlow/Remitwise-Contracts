@@ -30,7 +30,9 @@ meaning, and the entrypoints that can produce it.
 | 17 | `NoPendingAdmin` | `accept_admin` was called but no admin transfer has been nominated via `transfer_admin`. | `accept_admin` |
 | 18 | `InvalidAddress` | A supplied address resolves to the contract's own address, where an external party address is required. Guards against uninitialized or placeholder address inputs masquerading as a valid party. | `initialize`, `create_transfer`, `claim_transfer`, `cancel_transfer`, `add_caller`, `transfer_admin` |
 | 20 | `SupplyInvariantViolation` | The contract's actual token balance is less than its internally tracked `TotalEscrowed` liability. Checked automatically after every entrypoint that moves escrowed funds; see [Invariants](./invariants.md). | `create_transfer`, `claim_transfer`, `cancel_transfer`, `check_supply_invariant` |
-| 21 | `BatchTooLarge` | The number of operations in a `batch_operations` call exceeds `MAX_BATCH_SIZE`. | `batch_operations` |
+| 22 | `BatchTooLarge` | The number of operations in a `batch_operations` call exceeds `MAX_BATCH_SIZE`. | `batch_operations`, `batch_operations_idempotent` |
+| 24 | `InvalidBatchId` | The idempotent batch key is zero; callers must provide a non-zero key. | `batch_operations_idempotent` |
+| 25 | `BatchIdConflict` | An idempotent batch key was reused with a different operation payload. | `batch_operations_idempotent` |
 
 ---
 
@@ -54,6 +56,7 @@ meaning, and the entrypoints that can produce it.
 | `get_transfer`, `transfer_exists`, `get_status`, `is_expired` | `NotInitialized` (2), `TransferNotFound` (3)â€¡ |
 | `total_escrowed`, `count_for_sender`, `count_for_recipient`, `count_by_status`, `get_transfers_paged` | Noneâ€  |
 | `batch_operations` | Any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` depending on the operations in the batch |
+| `batch_operations_idempotent` | `InvalidBatchId` (24), `BatchIdConflict` (25), `BatchTooLarge` (22), or any error from `create_transfer`, `claim_transfer`, or `cancel_transfer` |
 
 \* `initialize` does not return `NotInitialized` (it is the call that performs initialisation).  
 â€  Returns `Ok` / plain value instead of `Result`; no error path.  
